@@ -120,7 +120,7 @@ export const useGameStore = create<GameState>()(
           // changes). Do NOT resolve here — cashout must pay only already-cleared
           // contracts, or sign-over-open zones would earn at cashout time.
           const payout = Math.round(s.bet * cumulativeMultiplier(s.board) * contractsMultiplier(s.contracts))
-          return { balance: s.balance + payout, bet: 0, cashedOut: true }
+          return { balance: s.balance + payout, bet: 0, cashedOut: true, flagBlockedAt: null }
         }),
       signContract: (request) =>
         set((s) => {
@@ -132,6 +132,9 @@ export const useGameStore = create<GameState>()(
             // mineCount bumps once at signing so the multiplier curve, win check
             // and HUD counter all see the extra mines coherently. Actual placement
             // (and any exemption cap) reconciles mineCount inside openCell.
+            // Invariant: only safe because preStartOnly guarantees opened === 0 here —
+            // cumulativeMultiplier reprices from mineCount, so a mid-game bump would
+            // retroactively reprice already-opened cells (exploit).
             const extra = contract.constraintId === 'density-up' ? (contract.extraMines ?? 0) : 0
             return {
               contracts: [...s.contracts, contract],
@@ -145,7 +148,9 @@ export const useGameStore = create<GameState>()(
         }),
       breakContract: (id) =>
         set((s) =>
-          s.board.status === 'playing' && !s.cashedOut ? { contracts: breakContractEngine(s.contracts, id) } : s,
+          s.board.status === 'playing' && !s.cashedOut
+            ? { contracts: breakContractEngine(s.contracts, id), flagBlockedAt: null }
+            : s,
         ),
       // ponytail: free refill, no cooldown — virtual points only (PRD 2.2)
       refill: () => set((s) => (s.balance <= 0 && s.bet === 0 ? { balance: START_BALANCE } : s)),
