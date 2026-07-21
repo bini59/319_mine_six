@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { cumulativeMultiplier, stepMultiplier } from './multiplier'
 import { openCell } from './board'
-import { START_BALANCE, useGameStore } from '@/store/game'
+import { START_BALANCE, mergePersisted, useGameStore } from '@/store/game'
 import type { Board, Cell } from './types'
 
 // Deterministic board with mines pre-placed (same shape as board.test.ts helper).
@@ -171,5 +171,17 @@ describe('game store: bet → open → cashout lifecycle', () => {
     useGameStore.setState({ balance: 0, bet: 50 })
     s().refill()
     expect(s().balance).toBe(0) // bet in play — no free money mid-round
+  })
+})
+
+describe('mergePersisted (reload refund)', () => {
+  it('refunds an unresolved persisted bet into balance', () => {
+    const current = { balance: 1000, bet: 0, other: 'x' }
+    expect(mergePersisted({ balance: 900, bet: 100 }, current)).toEqual({ balance: 1000, bet: 0, other: 'x' })
+  })
+
+  it('falls back to current state when nothing persisted', () => {
+    const current = { balance: 1000, bet: 0 }
+    expect(mergePersisted(undefined, current)).toEqual({ balance: 1000, bet: 0 })
   })
 })

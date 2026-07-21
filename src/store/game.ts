@@ -37,6 +37,15 @@ function settle(state: Pick<GameState, 'bet' | 'balance'>, board: Board): Partia
   return { board }
 }
 
+// Refund an unresolved mid-round stake on reload: the board isn't persisted,
+// so a persisted bet has no round to resolve into — give it back.
+export function mergePersisted<T extends { balance: number; bet: number }>(persisted: unknown, current: T): T {
+  const p = (persisted ?? {}) as Partial<Pick<T, 'balance' | 'bet'>>
+  const balance = typeof p.balance === 'number' ? p.balance : current.balance
+  const bet = typeof p.bet === 'number' ? p.bet : 0
+  return { ...current, balance: balance + bet, bet: 0 }
+}
+
 // generateBoard is deterministic before the first click, so SSR/client hydration matches
 export const useGameStore = create<GameState>()(
   persist(
@@ -70,7 +79,10 @@ export const useGameStore = create<GameState>()(
     }),
     {
       name: 'mine-six-points',
-      partialize: (s) => ({ balance: s.balance }),
+      // Persist the bet too: the board isn't persisted, so an unresolved
+      // mid-round stake is refunded on reload instead of silently burned.
+      partialize: (s) => ({ balance: s.balance, bet: s.bet }),
+      merge: mergePersisted,
     },
   ),
 )
