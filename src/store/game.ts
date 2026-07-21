@@ -5,9 +5,11 @@ import { CONSTRAINTS, isFlagBlockedAt, mimicRectTooLarge, resolveMimics } from '
 import {
   breakContract as breakContractEngine,
   contractsMultiplier,
+  newlyClearedContracts,
   resolveContracts,
   signContract as signContractEngine,
   type Contract,
+  type Rect,
   type SignRequest,
 } from '@/lib/engine/contract'
 import { cumulativeMultiplier, openedSafeCount } from '@/lib/engine/multiplier'
@@ -25,6 +27,9 @@ interface GameState {
   contracts: Contract[]
   // Transient: index of the last flag attempt blocked by a no-flag zone (UI flash).
   flagBlockedAt: number | null
+  // Transient: contracts cleared by the last open/chord (clear FX #9).
+  // `at` forces effect re-runs when the same zone value repeats.
+  lastClear: { rects: Rect[]; combo: number; multiplier: number; at: number } | null
   newGame: (params: BoardParams, bet?: number) => void
   placeBet: (amount: number) => void
   open: (x: number, y: number) => void
@@ -62,6 +67,23 @@ function withMimics(partial: Partial<GameState>, rng: () => number): Partial<Gam
   return { ...partial, contracts: resolveMimics(board, contracts, rng) }
 }
 
+// Clear FX transient (#9): only the settle path (open/chord) can clear contracts,
+// so only there does lastClear get set. Every other action resets it to null.
+function withClearFx(prev: readonly Contract[], partial: Partial<GameState>): Partial<GameState> {
+  const cleared = partial.contracts ? newlyClearedContracts(prev, partial.contracts) : []
+  if (cleared.length === 0) return { ...partial, lastClear: null }
+  return {
+    ...partial,
+    lastClear: {
+      rects: cleared.map((c) => c.rect),
+      combo: cleared.length,
+      // Same display convention as contract-hud: each cleared zone shows ×(1 + timing).
+      multiplier: cleared.reduce((m, c) => m * (1 + c.timingMultiplier), 1),
+      at: Date.now(),
+    },
+  }
+}
+
 // Refund an unresolved mid-round stake on reload: the board isn't persisted,
 // so a persisted bet has no round to resolve into — give it back.
 export function mergePersisted<T extends { balance: number; bet: number }>(persisted: unknown, current: T): T {
@@ -82,6 +104,7 @@ export const useGameStore = create<GameState>()(
       cashedOut: false,
       contracts: [],
       flagBlockedAt: null,
+      lastClear: null,
       newGame: (params, bet = 0) =>
         set((s) => {
           const b = clampBet(bet, s.balance)
@@ -93,6 +116,7 @@ export const useGameStore = create<GameState>()(
             cashedOut: false,
             contracts: [],
             flagBlockedAt: null,
+            lastClear: null,
           }
         }),
       placeBet: (amount) =>
@@ -110,19 +134,27 @@ export const useGameStore = create<GameState>()(
             : s.contracts
                 .filter((c) => c.status === 'active' && c.constraintId === 'density-up' && c.extraMines)
                 .map((c) => ({ rect: c.rect, count: c.extraMines as number }))
-          return { ...withMimics(settle(s, openCell(s.board, x, y, Math.random, zones)), Math.random), flagBlockedAt: null }
+          return {
+            ...withClearFx(s.contracts, withMimics(settle(s, openCell(s.board, x, y, Math.random, zones)), Math.random)),
+            flagBlockedAt: null,
+          }
         }),
       flag: (x, y) =>
         set((s) => {
           if (s.cashedOut) return s
           const index = y * s.board.width + x
           // ponytail: active 계약만 enforce — break/clear는 파생 판정이라 자동 해제
-          if (isFlagBlockedAt(index, s.contracts, s.board.width)) return { flagBlockedAt: index }
-          return { board: toggleFlag(s.board, x, y), flagBlockedAt: null }
+          if (isFlagBlockedAt(index, s.contracts, s.board.width)) return { flagBlockedAt: index, lastClear: null }
+          return { board: toggleFlag(s.board, x, y), flagBlockedAt: null, lastClear: null }
         }),
       chord: (x, y) =>
         set((s) =>
-          s.cashedOut ? s : { ...withMimics(settle(s, chord(s.board, x, y)), Math.random), flagBlockedAt: null },
+          s.cashedOut
+            ? s
+            : {
+                ...withClearFx(s.contracts, withMimics(settle(s, chord(s.board, x, y)), Math.random)),
+                flagBlockedAt: null,
+              },
         ),
       cashout: () =>
         set((s) => {
@@ -131,7 +163,7 @@ export const useGameStore = create<GameState>()(
           // changes). Do NOT resolve here — cashout must pay only already-cleared
           // contracts, or sign-over-open zones would earn at cashout time.
           const payout = Math.round(s.bet * cumulativeMultiplier(s.board) * contractsMultiplier(s.contracts))
-          return { balance: s.balance + payout, bet: 0, cashedOut: true, flagBlockedAt: null }
+          return { balance: s.balance + payout, bet: 0, cashedOut: true, flagBlockedAt: null, lastClear: null }
         }),
       signContract: (request) =>
         set((s) => {
@@ -152,6 +184,7 @@ export const useGameStore = create<GameState>()(
               contracts: [...s.contracts, contract],
               board: extra > 0 ? { ...s.board, mineCount: s.board.mineCount + extra } : s.board,
               flagBlockedAt: null,
+              lastClear: null,
             }
           } catch {
             // ponytail: invalid sign (out of bounds / nesting cap) is a no-op — UI (#6) pre-validates
@@ -161,7 +194,7 @@ export const useGameStore = create<GameState>()(
       breakContract: (id) =>
         set((s) =>
           s.board.status === 'playing' && !s.cashedOut
-            ? { contracts: breakContractEngine(s.contracts, id), flagBlockedAt: null }
+            ? { contracts: breakContractEngine(s.contracts, id), flagBlockedAt: null, lastClear: null }
             : s,
         ),
       // ponytail: free refill, no cooldown — virtual points only (PRD 2.2)
