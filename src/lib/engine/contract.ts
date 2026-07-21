@@ -89,8 +89,14 @@ export function signContract(
       throw new Error(`중첩 상한(${params.nestingCap})을 초과하는 구역입니다`)
     }
   }
+  // A contract must carry risk: at least one hidden safe cell inside the rect.
+  // Rejects fully-open rects, all-mine rects, and re-signs over cleared zones.
+  const cells = rectCells(rect, board.width)
+  if (!cells.some((i) => !board.cells[i].mine && board.cells[i].state !== 'open')) {
+    throw new Error('이미 공개되었거나 안전 칸이 없는 구역입니다')
+  }
   const totalSafe = board.width * board.height - board.mineCount
-  const openedFraction = openedSafeCount(board) / totalSafe
+  const openedFraction = totalSafe > 0 ? openedSafeCount(board) / totalSafe : 0
   return {
     id: contracts.reduce((max, c) => Math.max(max, c.id), 0) + 1,
     rect,

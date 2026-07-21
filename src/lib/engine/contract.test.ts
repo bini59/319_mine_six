@@ -100,7 +100,9 @@ describe('signContract', () => {
     expect(early.signedAtOpenedFraction).toBe(0)
     expect(early.timingMultiplier).toBeCloseTo(0.4)
 
-    const progressed = openCell(fresh, 0, 0) // flood opens cells → information revealed
+    // Open a single numbered cell (adjacent to the mine, no flood) so the
+    // request rect still holds hidden safe cells after information is revealed.
+    const progressed = openCell(fresh, 2, 2)
     const late = signContract(progressed, [], request)
     expect(late.signedAtOpenedFraction).toBeGreaterThan(0)
     expect(late.timingMultiplier).toBeLessThan(early.timingMultiplier)
@@ -208,5 +210,33 @@ describe('store integration', () => {
     expect(finalBoard.status).toBe('won')
     expect(useGameStore.getState().contracts[0].status).toBe('cleared')
     expect(useGameStore.getState().balance).toBe(Math.round(100 * cumulativeMultiplier(finalBoard) * 1.4))
+  })
+})
+
+describe('signContract risk guard (exploit prevention)', () => {
+  it('rejects a rect whose safe cells are already all open', () => {
+    let board = makeBoard(5, 1, [4])
+    board = openCell(board, 0, 0) // flood opens the zero region
+    expect(board.cells[0].state).toBe('open')
+    expect(() =>
+      signContract(board, [], { rect: { x: 0, y: 0, w: 2, h: 1 }, constraintId: 'no-flag', multiplierBonus: 0.4 }),
+    ).toThrow()
+  })
+
+  it('rejects an all-mine rect (no safe cells → no instant clear)', () => {
+    const board = makeBoard(4, 1, [0, 1])
+    expect(() =>
+      signContract(board, [], { rect: { x: 0, y: 0, w: 2, h: 1 }, constraintId: 'no-flag', multiplierBonus: 0.4 }),
+    ).toThrow()
+  })
+
+  it('accepts a rect that still contains hidden safe cells', () => {
+    const board = makeBoard(4, 1, [0])
+    const contract = signContract(board, [], {
+      rect: { x: 0, y: 0, w: 2, h: 1 },
+      constraintId: 'no-flag',
+      multiplierBonus: 0.4,
+    })
+    expect(contract.status).toBe('active')
   })
 })

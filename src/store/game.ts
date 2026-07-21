@@ -87,6 +87,9 @@ export const useGameStore = create<GameState>()(
       cashout: () =>
         set((s) => {
           if (s.board.status !== 'playing' || s.bet <= 0 || s.cashedOut) return s
+          // Invariant: contracts are resolved only in settle() (i.e. after board
+          // changes). Do NOT resolve here — cashout must pay only already-cleared
+          // contracts, or sign-over-open zones would earn at cashout time.
           const payout = Math.round(s.bet * cumulativeMultiplier(s.board) * contractsMultiplier(s.contracts))
           return { balance: s.balance + payout, bet: 0, cashedOut: true }
         }),
