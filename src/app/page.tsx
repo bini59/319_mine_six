@@ -32,10 +32,10 @@ function CustomForm({ onStart }: { onStart: (params: BoardParams) => void }) {
         }
       }}
     >
-      <input className={inputClass} value={w} onChange={(e) => setW(e.target.value)} aria-label="가로" />
+      <input className={inputClass} inputMode="numeric" value={w} onChange={(e) => setW(e.target.value)} aria-label="가로" />
       <span>×</span>
-      <input className={inputClass} value={h} onChange={(e) => setH(e.target.value)} aria-label="세로" />
-      <input className={inputClass} value={m} onChange={(e) => setM(e.target.value)} aria-label="지뢰 수" />
+      <input className={inputClass} inputMode="numeric" value={h} onChange={(e) => setH(e.target.value)} aria-label="세로" />
+      <input className={inputClass} inputMode="numeric" value={m} onChange={(e) => setM(e.target.value)} aria-label="지뢰 수" />
       <Button type="submit" variant="secondary" size="sm">
         커스텀 시작
       </Button>
@@ -62,8 +62,11 @@ export default function Home() {
       </div>
       <CustomForm onStart={newGame} />
 
-      <div className="font-mono text-lg" aria-live="polite">
-        💣 {board.mineCount - flags}
+      <div className="font-mono text-lg">
+        <span aria-hidden>💣</span>{' '}
+        <span aria-live="polite" aria-label="남은 지뢰">
+          {board.mineCount - flags}
+        </span>
       </div>
 
       <div className="relative">

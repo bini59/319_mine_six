@@ -41,7 +41,7 @@ export function GameBoard() {
           <button
             key={i}
             type="button"
-            aria-label={`cell ${x},${y}`}
+            aria-label={`cell ${x},${y} ${cell.state}`}
             className={`flex size-7 items-center justify-center text-sm font-bold sm:size-8 ${
               isOpen
                 ? cell.mine
@@ -51,6 +51,12 @@ export function GameBoard() {
             }`}
             onClick={() => (isOpen && cell.adjacent > 0 ? chord(x, y) : open(x, y))}
             onContextMenu={() => flag(x, y)}
+            onKeyDown={(e) => {
+              if (e.key === 'f' || (e.shiftKey && e.key === 'Enter')) {
+                e.preventDefault()
+                flag(x, y)
+              }
+            }}
           >
             {cellContent(cell, lost)}
           </button>
