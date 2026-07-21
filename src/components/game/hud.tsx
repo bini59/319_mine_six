@@ -59,6 +59,7 @@ export function Hud() {
       <div className="flex items-center gap-2">
         <Button
           disabled={!canCashout}
+          title="0.5초 길게 눌러 확정"
           className="relative select-none overflow-hidden"
           // Pointer: hold 0.5s to confirm (timer fires cashout). Keyboard: immediate.
           // No onClick — pointer-up click and keyboard click would double-fire otherwise.
@@ -67,7 +68,7 @@ export function Hud() {
           onPointerLeave={cancelHold}
           onPointerCancel={cancelHold}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
+            if ((e.key === 'Enter' || e.key === ' ') && !e.repeat) {
               e.preventDefault()
               if (canCashout) cashout()
             }

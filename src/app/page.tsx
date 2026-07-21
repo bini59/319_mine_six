@@ -67,7 +67,11 @@ function BetForm() {
         onChange={(e) => setAmount(e.target.value)}
         aria-label="베팅액"
       />
-      <Button type="submit" size="sm" disabled={balance <= 0}>
+      <Button
+        type="submit"
+        size="sm"
+        disabled={balance <= 0 || !Number.isFinite(Number(amount)) || Number(amount) <= 0}
+      >
         베팅
       </Button>
     </form>
