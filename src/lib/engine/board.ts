@@ -1,5 +1,12 @@
 import type { Board, Cell } from './types'
 import type { BoardParams } from './presets'
+import { rectCells, type Rect } from './contract'
+
+// density-up (#7): force `count` extra mines inside `rect` at placement time.
+export interface ForcedZone {
+  rect: Rect
+  count: number
+}
 
 const HIDDEN_CELL: Cell = { mine: false, adjacent: 0, state: 'hidden' }
 
@@ -37,24 +44,40 @@ export function generateBoard({ width, height, mines }: BoardParams): Board {
   }
 }
 
+// ponytail: partial Fisher–Yates for the first `count` picks — unbiased, O(count)
+function pickRandom(pool: number[], count: number, rng: () => number): number[] {
+  const copy = [...pool]
+  const picked: number[] = []
+  for (let k = 0; k < Math.min(count, copy.length); k++) {
+    const j = k + Math.floor(rng() * (copy.length - k))
+    ;[copy[j], copy[k]] = [copy[k], copy[j]]
+    picked.push(copy[k])
+  }
+  return picked
+}
+
 // Place mines everywhere except the clicked cell and its neighbors, then compute
 // adjacency counts once (never recomputed afterwards — numbers always tell the truth).
-function placeMines(board: Board, safeIndex: number, rng: () => number): readonly Cell[] {
+// Forced zones (density-up) get their mines first, then the global pool fills the rest.
+function placeMines(
+  board: Board,
+  safeIndex: number,
+  rng: () => number,
+  forcedZones: readonly ForcedZone[] = [],
+): readonly Cell[] {
   const safe = new Set([safeIndex, ...neighborsOf(board.width, board.height, safeIndex)])
-  const candidates: number[] = []
-  for (let i = 0; i < board.cells.length; i++) {
-    if (!safe.has(i)) candidates.push(i)
-  }
-  // ponytail: partial Fisher–Yates for the first `mineCount` picks — unbiased, O(mines)
-  const pool = [...candidates]
   const mineSet = new Set<number>()
-  for (let k = 0; k < board.mineCount; k++) {
-    const j = k + Math.floor(rng() * (pool.length - k))
-    const picked = pool[j]
-    pool[j] = pool[k]
-    pool[k] = picked
-    mineSet.add(picked)
+  for (const { rect, count } of forcedZones) {
+    const zonePool = rectCells(rect, board.width).filter((i) => !safe.has(i) && !mineSet.has(i))
+    // ponytail: cap when the first-click exemption leaves too few zone candidates —
+    // openCell recomputes mineCount from actual placement, so counts stay coherent
+    for (const i of pickRandom(zonePool, count, rng)) mineSet.add(i)
   }
+  const pool: number[] = []
+  for (let i = 0; i < board.cells.length; i++) {
+    if (!safe.has(i) && !mineSet.has(i)) pool.push(i)
+  }
+  for (const i of pickRandom(pool, board.mineCount - mineSet.size, rng)) mineSet.add(i)
   return board.cells.map((cell, i) => ({
     ...cell,
     mine: mineSet.has(i),
@@ -87,21 +110,30 @@ function floodOpen(board: Board, cells: Cell[], start: number): void {
   }
 }
 
-export function openCell(board: Board, x: number, y: number, rng: () => number = Math.random): Board {
+export function openCell(
+  board: Board,
+  x: number,
+  y: number,
+  rng: () => number = Math.random,
+  forcedZones: readonly ForcedZone[] = [],
+): Board {
   if (outOfBounds(board, x, y)) return board
   const index = y * board.width + x
   if (board.status !== 'playing' || board.cells[index].state !== 'hidden') return board
 
-  const placed = board.minesPlaced ? board.cells : placeMines(board, index, rng)
+  const placed = board.minesPlaced ? board.cells : placeMines(board, index, rng, forcedZones)
+  // mineCount follows actual placement — forced zones can be capped by the
+  // first-click exemption, and win detection must match reality.
+  const mineCount = board.minesPlaced ? board.mineCount : placed.filter((c) => c.mine).length
 
   if (placed[index].mine) {
-    return { ...board, minesPlaced: true, cells: revealMines(placed), status: 'lost' }
+    return { ...board, mineCount, minesPlaced: true, cells: revealMines(placed), status: 'lost' }
   }
 
   const cells = [...placed]
   floodOpen(board, cells, index)
-  const won = isWon({ cells, mineCount: board.mineCount })
-  return { ...board, minesPlaced: true, cells, status: won ? 'won' : 'playing' }
+  const won = isWon({ cells, mineCount })
+  return { ...board, mineCount, minesPlaced: true, cells, status: won ? 'won' : 'playing' }
 }
 
 export function toggleFlag(board: Board, x: number, y: number): Board {

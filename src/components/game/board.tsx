@@ -41,12 +41,17 @@ export interface ContractSelection {
 }
 
 export function GameBoard({ selection }: { selection?: ContractSelection }) {
-  const { board, contracts, open, flag, chord } = useGameStore()
+  const { board, contracts, flagBlockedAt, open, flag, chord } = useGameStore()
   const lost = board.status === 'lost'
   const contractMode = selection?.contractMode ?? false
 
   return (
-    <div
+    <div>
+      {/* ponytail: transient store field is the whole feedback state — cleared on the next action */}
+      <p aria-live="polite" className="sr-only">
+        {flagBlockedAt !== null ? '이 구역은 깃발을 꽂을 수 없습니다' : ''}
+      </p>
+      <div
       className="grid w-fit max-w-full select-none gap-px overflow-auto bg-gray-400 p-px dark:bg-gray-600"
       // ponytail: touch drag-select is not supported — touch users tap two corners.
       style={{ gridTemplateColumns: `repeat(${board.width}, minmax(0, 1fr))`, touchAction: contractMode ? 'none' : undefined }}
@@ -69,7 +74,9 @@ export function GameBoard({ selection }: { selection?: ContractSelection }) {
                   ? 'bg-red-300'
                   : `bg-gray-200 dark:bg-gray-700 ${NUMBER_COLORS[cell.adjacent]}`
                 : 'bg-gray-300 hover:bg-gray-200 active:bg-gray-100 dark:bg-gray-500 dark:hover:bg-gray-400'
-            } ${previewing ? 'bg-purple-400/60 dark:bg-purple-400/60' : ZONE_RINGS[layers]}`}
+            } ${previewing ? 'bg-purple-400/60 dark:bg-purple-400/60' : ZONE_RINGS[layers]} ${
+              flagBlockedAt === i ? 'animate-pulse ring-2 ring-inset ring-red-500' : ''
+            }`}
             onClick={() => {
               if (contractMode) return
               if (isOpen && cell.adjacent > 0) chord(x, y)
@@ -93,6 +100,7 @@ export function GameBoard({ selection }: { selection?: ContractSelection }) {
           </button>
         )
       })}
+      </div>
     </div>
   )
 }

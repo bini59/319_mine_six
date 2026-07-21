@@ -161,15 +161,17 @@ export default function Home() {
     return ''
   }
 
-  const sign = (constraintId: string, multiplierBonus: number) => {
+  const sign = (constraintId: string, multiplierBonus: number, extraMines?: number) => {
     if (!pendingRect) return
-    const error = validateRect(pendingRect)
+    const def = CONSTRAINTS.find((c) => c.id === constraintId)
+    const error =
+      def?.preStartOnly && board.minesPlaced ? '판 시작 전에만 체결 가능합니다' : validateRect(pendingRect)
     if (error) {
       setContractError(error)
       setPendingRect(null)
       return
     }
-    signContract({ rect: pendingRect, constraintId, multiplierBonus })
+    signContract({ rect: pendingRect, constraintId, multiplierBonus, extraMines })
     exitContractMode()
   }
 
@@ -216,11 +218,26 @@ export default function Home() {
         )}
         {contractMode &&
           pendingRect &&
-          CONSTRAINTS.map((c) => (
-            <Button key={c.id} size="sm" variant="secondary" onClick={() => sign(c.id, c.bonus)}>
-              {c.label} +{c.bonus}x
-            </Button>
-          ))}
+          CONSTRAINTS.flatMap((c) =>
+            c.id === 'density-up'
+              ? [1, 2, 3].map((n) => (
+                  <Button
+                    key={`${c.id}-${n}`}
+                    size="sm"
+                    variant="secondary"
+                    disabled={board.minesPlaced}
+                    title={board.minesPlaced ? '판 시작 전에만 체결 가능' : undefined}
+                    onClick={() => sign(c.id, n * (c.extraMinesBonus ?? 0.2), n)}
+                  >
+                    {c.label} +{n} (+{(n * (c.extraMinesBonus ?? 0.2)).toFixed(1)}x)
+                  </Button>
+                ))
+              : [
+                  <Button key={c.id} size="sm" variant="secondary" onClick={() => sign(c.id, c.bonus)}>
+                    {c.label} +{c.bonus}x
+                  </Button>,
+                ],
+          )}
         {contractMode && pendingRect && (
           <Button size="sm" variant="ghost" onClick={exitContractMode}>
             취소
