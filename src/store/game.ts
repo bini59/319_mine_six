@@ -15,6 +15,7 @@ import {
 import { cumulativeMultiplier, openedSafeCount } from '@/lib/engine/multiplier'
 import type { Board } from '@/lib/engine/types'
 import { BEGINNER, type BoardParams } from '@/lib/engine/presets'
+import type { RoundEvent } from '@/lib/game/death-summary'
 
 export const START_BALANCE = 1000
 
@@ -30,6 +31,8 @@ interface GameState {
   // Transient: contracts cleared by the last open/chord (clear FX #9).
   // `at` forces effect re-runs when the same zone value repeats.
   lastClear: { rects: Rect[]; combo: number; multiplier: number; at: number } | null
+  // Round-scoped choice log for the death summary (#10). Reset on newGame, never persisted.
+  history: RoundEvent[]
   newGame: (params: BoardParams, bet?: number) => void
   placeBet: (amount: number) => void
   open: (x: number, y: number) => void
@@ -106,6 +109,7 @@ export const useGameStore = create<GameState>()(
       contracts: [],
       flagBlockedAt: null,
       lastClear: null,
+      history: [],
       newGame: (params, bet = 0) =>
         set((s) => {
           const b = clampBet(bet, s.balance)
@@ -118,13 +122,14 @@ export const useGameStore = create<GameState>()(
             contracts: [],
             flagBlockedAt: null,
             lastClear: null,
+            history: [],
           }
         }),
       placeBet: (amount) =>
         set((s) => {
           if (openedSafeCount(s.board) > 0 || s.bet > 0 || s.board.status !== 'playing' || s.cashedOut) return s
           const b = clampBet(amount, s.balance)
-          return { bet: b, balance: s.balance - b }
+          return { bet: b, balance: s.balance - b, history: [...s.history, { type: 'bet' as const }] }
         }),
       open: (x, y) =>
         set((s) => {
@@ -135,9 +140,14 @@ export const useGameStore = create<GameState>()(
             : s.contracts
                 .filter((c) => c.status === 'active' && c.constraintId === 'density-up' && c.extraMines)
                 .map((c) => ({ rect: c.rect, count: c.extraMines as number }))
+          const next = withClearFx(s.contracts, withMimics(settle(s, openCell(s.board, x, y, Math.random, zones)), Math.random))
+          // Engine no-op (already open / out of bounds / finished) leaves no history.
+          if (next.board === s.board) return { ...next, flagBlockedAt: null }
           return {
-            ...withClearFx(s.contracts, withMimics(settle(s, openCell(s.board, x, y, Math.random, zones)), Math.random)),
+            ...next,
             flagBlockedAt: null,
+            // Multiplier recorded from the post-settle board — the value this open reached.
+            history: [...s.history, { type: 'open' as const, x, y, multiplier: cumulativeMultiplier(next.board as Board) }],
           }
         }),
       flag: (x, y) =>
@@ -146,25 +156,41 @@ export const useGameStore = create<GameState>()(
           const index = y * s.board.width + x
           // ponytail: active 계약만 enforce — break/clear는 파생 판정이라 자동 해제
           if (isFlagBlockedAt(index, s.contracts, s.board.width)) return { flagBlockedAt: index, lastClear: null }
-          return { board: toggleFlag(s.board, x, y), flagBlockedAt: null, lastClear: null }
+          const board = toggleFlag(s.board, x, y)
+          if (board === s.board) return { flagBlockedAt: null, lastClear: null }
+          return {
+            board,
+            flagBlockedAt: null,
+            lastClear: null,
+            history: [...s.history, { type: 'flag' as const, x, y }],
+          }
         }),
       chord: (x, y) =>
-        set((s) =>
-          s.cashedOut
-            ? s
-            : {
-                ...withClearFx(s.contracts, withMimics(settle(s, chord(s.board, x, y)), Math.random)),
-                flagBlockedAt: null,
-              },
-        ),
+        set((s) => {
+          if (s.cashedOut) return s
+          const next = withClearFx(s.contracts, withMimics(settle(s, chord(s.board, x, y)), Math.random))
+          if (next.board === s.board) return { ...next, flagBlockedAt: null }
+          return {
+            ...next,
+            flagBlockedAt: null,
+            history: [...s.history, { type: 'chord' as const, x, y, multiplier: cumulativeMultiplier(next.board as Board) }],
+          }
+        }),
       cashout: () =>
         set((s) => {
           if (s.board.status !== 'playing' || s.bet <= 0 || s.cashedOut) return s
           // Invariant: contracts are resolved only in settle() (i.e. after board
           // changes). Do NOT resolve here — cashout must pay only already-cleared
           // contracts, or sign-over-open zones would earn at cashout time.
-          const payout = Math.round(s.bet * cumulativeMultiplier(s.board) * contractsMultiplier(s.contracts))
-          return { balance: s.balance + payout, bet: 0, cashedOut: true, flagBlockedAt: null, lastClear: null }
+          const multiplier = cumulativeMultiplier(s.board) * contractsMultiplier(s.contracts)
+          return {
+            balance: s.balance + Math.round(s.bet * multiplier),
+            bet: 0,
+            cashedOut: true,
+            flagBlockedAt: null,
+            lastClear: null,
+            history: [...s.history, { type: 'cashout' as const, multiplier }],
+          }
         }),
       signContract: (request) =>
         set((s) => {
@@ -186,6 +212,7 @@ export const useGameStore = create<GameState>()(
               board: extra > 0 ? { ...s.board, mineCount: s.board.mineCount + extra } : s.board,
               flagBlockedAt: null,
               lastClear: null,
+              history: [...s.history, { type: 'sign' as const, constraintId: request.constraintId, rect: request.rect }],
             }
           } catch {
             // ponytail: invalid sign (out of bounds / nesting cap) is a no-op — UI (#6) pre-validates
@@ -193,11 +220,19 @@ export const useGameStore = create<GameState>()(
           }
         }),
       breakContract: (id) =>
-        set((s) =>
-          s.board.status === 'playing' && !s.cashedOut
-            ? { contracts: breakContractEngine(s.contracts, id), flagBlockedAt: null, lastClear: null }
-            : s,
-        ),
+        set((s) => {
+          if (s.board.status !== 'playing' || s.cashedOut) return s
+          const target = s.contracts.find((c) => c.id === id && c.status === 'active')
+          return {
+            contracts: breakContractEngine(s.contracts, id),
+            flagBlockedAt: null,
+            lastClear: null,
+            // Only an actual active→broken transition is a choice worth logging.
+            ...(target && {
+              history: [...s.history, { type: 'break' as const, constraintId: target.constraintId }],
+            }),
+          }
+        }),
       // ponytail: free refill, no cooldown — virtual points only (PRD 2.2)
       refill: () => set((s) => (s.balance <= 0 && s.bet === 0 ? { balance: START_BALANCE } : s)),
     }),
