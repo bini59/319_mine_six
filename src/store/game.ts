@@ -1,6 +1,14 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { chord, generateBoard, openCell, toggleFlag } from '@/lib/engine/board'
+import {
+  breakContract as breakContractEngine,
+  contractsMultiplier,
+  resolveContracts,
+  signContract as signContractEngine,
+  type Contract,
+  type SignRequest,
+} from '@/lib/engine/contract'
 import { cumulativeMultiplier, openedSafeCount } from '@/lib/engine/multiplier'
 import type { Board } from '@/lib/engine/types'
 import { BEGINNER, type BoardParams } from '@/lib/engine/presets'
@@ -13,6 +21,7 @@ interface GameState {
   balance: number
   bet: number
   cashedOut: boolean
+  contracts: Contract[]
   newGame: (params: BoardParams, bet?: number) => void
   placeBet: (amount: number) => void
   open: (x: number, y: number) => void
@@ -20,6 +29,8 @@ interface GameState {
   chord: (x: number, y: number) => void
   cashout: () => void
   refill: () => void
+  signContract: (request: SignRequest) => void
+  breakContract: (id: number) => void
 }
 
 function clampBet(amount: number, balance: number): number {
@@ -29,12 +40,15 @@ function clampBet(amount: number, balance: number): number {
 
 // Bet is deducted up-front, so a mine click needs no settlement — the loss
 // already happened. Win pays like a cashout at full board.
-function settle(state: Pick<GameState, 'bet' | 'balance'>, board: Board): Partial<GameState> {
+// Payout multiplier = base curve × contract factors (cleared/broken), see contract.ts.
+function settle(state: Pick<GameState, 'bet' | 'balance' | 'contracts'>, board: Board): Partial<GameState> {
+  const contracts = resolveContracts(board, state.contracts)
   if (board.status === 'won' && state.bet > 0) {
-    return { board, bet: 0, balance: state.balance + Math.round(state.bet * cumulativeMultiplier(board)) }
+    const payout = Math.round(state.bet * cumulativeMultiplier(board) * contractsMultiplier(contracts))
+    return { board, contracts, bet: 0, balance: state.balance + payout }
   }
-  if (board.status === 'lost') return { board, bet: 0 }
-  return { board }
+  if (board.status === 'lost') return { board, contracts, bet: 0 }
+  return { board, contracts }
 }
 
 // Refund an unresolved mid-round stake on reload: the board isn't persisted,
@@ -55,10 +69,11 @@ export const useGameStore = create<GameState>()(
       balance: START_BALANCE,
       bet: 0,
       cashedOut: false,
+      contracts: [],
       newGame: (params, bet = 0) =>
         set((s) => {
           const b = clampBet(bet, s.balance)
-          return { board: generateBoard(params), params, bet: b, balance: s.balance - b, cashedOut: false }
+          return { board: generateBoard(params), params, bet: b, balance: s.balance - b, cashedOut: false, contracts: [] }
         }),
       placeBet: (amount) =>
         set((s) => {
@@ -72,8 +87,23 @@ export const useGameStore = create<GameState>()(
       cashout: () =>
         set((s) => {
           if (s.board.status !== 'playing' || s.bet <= 0 || s.cashedOut) return s
-          return { balance: s.balance + Math.round(s.bet * cumulativeMultiplier(s.board)), bet: 0, cashedOut: true }
+          const payout = Math.round(s.bet * cumulativeMultiplier(s.board) * contractsMultiplier(s.contracts))
+          return { balance: s.balance + payout, bet: 0, cashedOut: true }
         }),
+      signContract: (request) =>
+        set((s) => {
+          if (s.board.status !== 'playing' || s.cashedOut) return s
+          try {
+            return { contracts: [...s.contracts, signContractEngine(s.board, s.contracts, request)] }
+          } catch {
+            // ponytail: invalid sign (out of bounds / nesting cap) is a no-op — UI (#6) pre-validates
+            return s
+          }
+        }),
+      breakContract: (id) =>
+        set((s) =>
+          s.board.status === 'playing' && !s.cashedOut ? { contracts: breakContractEngine(s.contracts, id) } : s,
+        ),
       // ponytail: free refill, no cooldown — virtual points only (PRD 2.2)
       refill: () => set((s) => (s.balance <= 0 && s.bet === 0 ? { balance: START_BALANCE } : s)),
     }),
