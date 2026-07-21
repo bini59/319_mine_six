@@ -6,7 +6,7 @@ import type { Board } from '@/lib/engine/types'
 // One entry per successful, board/round-affecting player choice.
 // Defined here (not in the store) so the pure summary layer owns the shape.
 export interface RoundEvent {
-  type: 'bet' | 'open' | 'flag' | 'chord' | 'sign' | 'break' | 'cashout'
+  type: 'bet' | 'open' | 'flag' | 'chord' | 'sign' | 'break' | 'cashout' | 'scan'
   x?: number
   y?: number
   constraintId?: string

@@ -50,8 +50,8 @@ function goldDelay(rects: readonly Rect[], x: number, y: number): number | null 
   return null
 }
 
-export function GameBoard({ selection }: { selection?: ContractSelection }) {
-  const { board, contracts, flagBlockedAt, lastClear, open, flag, chord } = useGameStore()
+export function GameBoard({ selection, scanMode = false }: { selection?: ContractSelection; scanMode?: boolean }) {
+  const { board, contracts, flagBlockedAt, lastClear, open, flag, chord, scan } = useGameStore()
   const lost = board.status === 'lost'
   const contractMode = selection?.contractMode ?? false
 
@@ -76,6 +76,8 @@ export function GameBoard({ selection }: { selection?: ContractSelection }) {
         const y = Math.floor(i / board.width)
         const isOpen = cell.state === 'open'
         const displayed = displayAdjacentAt(i, cell, contracts)
+        // Scan badge (#12): bought truth on a still-hidden cell — 💣 100% / ✓ 0%.
+        const isScanned = cell.state === 'hidden' && (board.scanned?.includes(i) ?? false)
         // Blind zone: opened numbers fade out after BLIND_FADE_MS (CSS-only,
         // no per-cell timers). break/clear drops the class → truth returns.
         const blind = isOpen && !cell.mine && displayed > 0 && isBlindAt(i, contracts, board.width)
@@ -98,17 +100,21 @@ export function GameBoard({ selection }: { selection?: ContractSelection }) {
                 : 'bg-gray-300 hover:bg-gray-200 active:bg-gray-100 dark:bg-gray-500 dark:hover:bg-gray-400'
             } ${previewing ? 'bg-purple-400/60 dark:bg-purple-400/60' : ZONE_RINGS[layers]} ${
               flagBlockedAt === i ? 'animate-pulse ring-2 ring-inset ring-red-500' : ''
-            } ${gold !== null ? 'gold-pulse' : ''}`}
+            } ${isScanned ? 'ring-2 ring-inset ring-amber-400' : ''} ${gold !== null ? 'gold-pulse' : ''}`}
             onClick={() => {
               if (contractMode) return
+              if (scanMode) {
+                scan(x, y)
+                return
+              }
               if (isOpen && cell.adjacent > 0) chord(x, y)
               else open(x, y)
             }}
             onContextMenu={() => {
-              if (!contractMode) flag(x, y)
+              if (!contractMode && !scanMode) flag(x, y)
             }}
             onKeyDown={(e) => {
-              if (contractMode) return
+              if (contractMode || scanMode) return
               if (e.key === 'f' || (e.shiftKey && e.key === 'Enter')) {
                 e.preventDefault()
                 flag(x, y)
@@ -118,7 +124,9 @@ export function GameBoard({ selection }: { selection?: ContractSelection }) {
             onPointerEnter={() => contractMode && selection?.onCellPointerEnter({ x, y })}
             onPointerUp={() => contractMode && selection?.onCellPointerUp({ x, y })}
           >
-            {blind ? (
+            {isScanned ? (
+              <span aria-label={cell.mine ? '지뢰 확률 100%' : '지뢰 확률 0%'}>{cell.mine ? '💣' : '✓'}</span>
+            ) : blind ? (
               <span className="blind-fade" style={{ animationDelay: `${BLIND_FADE_MS}ms` }}>
                 {cellContent(cell, lost, displayed)}
               </span>

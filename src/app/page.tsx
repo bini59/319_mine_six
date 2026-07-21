@@ -7,6 +7,7 @@ import { DeathSummary } from '@/components/game/death-summary'
 import { Hud } from '@/components/game/hud'
 import { Button } from '@/components/ui/button'
 import { BEGINNER, EXPERT, INTERMEDIATE, custom, type BoardParams } from '@/lib/engine/presets'
+import { scanCost } from '@/lib/engine/board'
 import { openedSafeCount } from '@/lib/engine/multiplier'
 import {
   activeLayersAt,
@@ -133,11 +134,12 @@ function useZoneSelection(onRect: (rect: Rect) => void) {
 }
 
 export default function Home() {
-  const { board, params, contracts, newGame, signContract } = useGameStore()
+  const { board, params, contracts, bet, balance, cashedOut, newGame, signContract } = useGameStore()
   const flags = board.cells.filter((c) => c.state === 'flagged').length
   const finished = board.status !== 'playing'
 
   const [contractMode, setContractMode] = useState(false)
+  const [scanMode, setScanMode] = useState(false)
   const [pendingRect, setPendingRect] = useState<Rect | null>(null)
   const [contractError, setContractError] = useState('')
   const zone = useZoneSelection((rect) => {
@@ -155,8 +157,13 @@ export default function Home() {
   // A new board invalidates any in-flight selection — reset before starting.
   const startGame = (p: BoardParams) => {
     exitContractMode()
+    setScanMode(false)
     newGame(p)
   }
+
+  // Modes are mutually exclusive: entering one exits the other.
+  const cost = scanCost(board, bet)
+  const canScan = !finished && board.minesPlaced && !cashedOut && balance >= cost
 
   // Instant retry: Enter restarts with the same params once the round ends
   // (PRD 5 — 사망 후 30초 내 리트라이 목표). Re-registering per render is cheap.
@@ -232,10 +239,32 @@ export default function Home() {
           variant={contractMode ? 'default' : 'outline'}
           size="sm"
           disabled={finished}
-          onClick={() => (contractMode ? exitContractMode() : setContractMode(true))}
+          onClick={() => {
+            if (contractMode) exitContractMode()
+            else {
+              setScanMode(false)
+              setContractMode(true)
+            }
+          }}
         >
           {contractMode ? '계약 모드 종료' : '구역 계약'}
         </Button>
+        <Button
+          variant={scanMode ? 'default' : 'outline'}
+          size="sm"
+          disabled={!scanMode && !canScan}
+          title={!board.minesPlaced ? '첫 오픈 이후 사용 가능' : undefined}
+          onClick={() => {
+            if (scanMode) setScanMode(false)
+            else {
+              exitContractMode()
+              setScanMode(true)
+            }
+          }}
+        >
+          {scanMode ? '스캔 모드 종료' : `정밀 스캔 (${cost}P)`}
+        </Button>
+        {scanMode && <span className="text-sm text-gray-500">칸을 클릭하면 {cost}P로 지뢰 여부를 확인합니다</span>}
         {contractMode && !pendingRect && (
           <span className="text-sm text-gray-500">드래그 또는 두 모서리 탭으로 구역 지정</span>
         )}
@@ -272,7 +301,7 @@ export default function Home() {
       <ContractHud />
 
       <div className="relative">
-        <GameBoard selection={selection} />
+        <GameBoard selection={selection} scanMode={scanMode} />
         {finished && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-auto bg-black/60 p-2">
             <p className="text-3xl font-bold text-white">{board.status === 'won' ? '🎉 승리!' : '💥 패배'}</p>

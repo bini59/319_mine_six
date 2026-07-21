@@ -11,6 +11,7 @@ const EVENT_LABEL: Record<RoundEvent['type'], string> = {
   sign: '계약 체결',
   break: '계약 파기',
   cashout: '캐시아웃',
+  scan: '정밀 스캔',
 }
 
 function choiceLine(e: RoundEvent): string {

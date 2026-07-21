@@ -1,7 +1,7 @@
 import type { Board, Cell } from './types'
 import type { BoardParams } from './presets'
 import { rectCells, type Rect } from './contract'
-import { stepMultiplier } from './multiplier'
+import { cumulativeMultiplier, stepMultiplier } from './multiplier'
 
 // density-up (#7): force `count` extra mines inside `rect` at placement time.
 export interface ForcedZone {
@@ -149,6 +149,27 @@ export function openCell(
     ? board.freeOpened
     : cells.flatMap((c, i) => (c.state === 'open' ? [i] : []))
   return { ...board, mineCount, minesPlaced: true, cells, status: won ? 'won' : 'playing', freeOpened, multiplier }
+}
+
+// Scan item (#12): record that the player paid to see this cell's mine truth.
+// Gated on minesPlaced — before placement cell.mine is meaningless and the
+// first-click exemption would tangle with it. No-ops return the same reference.
+export function scan(board: Board, x: number, y: number): Board {
+  if (outOfBounds(board, x, y)) return board
+  const index = y * board.width + x
+  if (board.status !== 'playing' || !board.minesPlaced) return board
+  if (board.cells[index].state !== 'hidden') return board
+  if (board.scanned?.includes(index)) return board
+  return { ...board, scanned: [...(board.scanned ?? []), index] }
+}
+
+export const SCAN_COST_MIN = 50
+export const SCAN_COST_PCT = 0.15
+
+// Priced against the current potential payout so resolving a late 50/50
+// competes with cashing out ("사용 여부 자체가 베팅", PRD 4.2/4.5).
+export function scanCost(board: Board, bet: number): number {
+  return Math.max(SCAN_COST_MIN, Math.ceil(bet * cumulativeMultiplier(board) * SCAN_COST_PCT))
 }
 
 export function toggleFlag(board: Board, x: number, y: number): Board {
