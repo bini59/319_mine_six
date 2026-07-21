@@ -3,6 +3,7 @@ import {
   DEFAULT_CONTRACT_PARAMS,
   breakContract,
   contractsMultiplier,
+  newlyClearedContracts,
   rectInBounds,
   resolveContracts,
   signContract,
@@ -253,5 +254,28 @@ describe('extraMines carriage (density-up)', () => {
     expect(c.extraMines).toBe(2)
     const plain = signContract(board, [], { rect: { x: 2, y: 0, w: 2, h: 2 }, constraintId: 'no-flag', multiplierBonus: 0.4 })
     expect(plain.extraMines).toBeUndefined()
+  })
+})
+
+describe('newlyClearedContracts (clear FX diff)', () => {
+  const base = (id: number, status: Contract['status']): Contract =>
+    makeContract({ id, rect: { x: 0, y: 0, w: 2, h: 2 }, status })
+
+  it('returns contracts that went active → cleared', () => {
+    const prev = [base(1, 'active'), base(2, 'active'), base(3, 'broken')]
+    const next = [base(1, 'cleared'), base(2, 'active'), base(3, 'broken')]
+    expect(newlyClearedContracts(prev, next).map((c) => c.id)).toEqual([1])
+  })
+
+  it('counts simultaneous clears as a combo', () => {
+    const prev = [base(1, 'active'), base(2, 'active')]
+    const next = [base(1, 'cleared'), base(2, 'cleared')]
+    expect(newlyClearedContracts(prev, next)).toHaveLength(2)
+  })
+
+  it('ignores already-cleared and broken contracts', () => {
+    const prev = [base(1, 'cleared'), base(2, 'broken')]
+    const next = [base(1, 'cleared'), base(2, 'broken')]
+    expect(newlyClearedContracts(prev, next)).toEqual([])
   })
 })

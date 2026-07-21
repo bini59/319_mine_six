@@ -129,6 +129,13 @@ export function resolveContracts(board: Board, contracts: readonly Contract[]): 
   })
 }
 
+// Diff for the clear FX (#9): contracts that were active before settle and
+// cleared after it. Length = combo count for simultaneous clears.
+export function newlyClearedContracts(prev: readonly Contract[], next: readonly Contract[]): Contract[] {
+  const wasActive = new Set(prev.filter((c) => c.status === 'active').map((c) => c.id))
+  return next.filter((c) => c.status === 'cleared' && wasActive.has(c.id))
+}
+
 export function breakContract(contracts: readonly Contract[], id: number): Contract[] {
   return contracts.map((c) => (c.id === id && c.status === 'active' ? { ...c, status: 'broken' } : c))
 }
