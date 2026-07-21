@@ -54,7 +54,7 @@ export function GameBoard({ selection }: { selection?: ContractSelection }) {
     >
       {board.cells.map((cell, i) => {
         const x = i % board.width
-        const y = Math.floor((i / board.width))
+        const y = Math.floor(i / board.width)
         const isOpen = cell.state === 'open'
         const layers = Math.min(activeLayersAt(i, contracts, board.width), ZONE_RINGS.length - 1)
         const previewing = contractMode && inRect(selection?.preview ?? null, x, y)

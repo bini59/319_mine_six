@@ -103,9 +103,14 @@ function useZoneSelection(onRect: (rect: Rect) => void) {
     preview,
     reset,
     onCellPointerDown: (c: Corner) => {
-      if (!anchor) {
+      // Re-anchor unless a two-tap selection is armed: recovers from a drag
+      // whose pointerup landed outside the grid (dangling anchor).
+      if (!anchor || !armed) {
         setAnchor(c)
+        setArmed(false)
         setPreview(rectFromCorners(c, c))
+      } else {
+        setPreview(rectFromCorners(anchor, c))
       }
     },
     onCellPointerEnter: (c: Corner) => {
@@ -137,6 +142,12 @@ export default function Home() {
     setPendingRect(null)
     setContractError('')
     zone.reset()
+  }
+
+  // A new board invalidates any in-flight selection — reset before starting.
+  const startGame = (p: BoardParams) => {
+    exitContractMode()
+    newGame(p)
   }
 
   // Pre-validate so the store's silent no-op never leaves the user without feedback.
@@ -174,12 +185,12 @@ export default function Home() {
 
       <div className="flex flex-wrap items-center justify-center gap-2">
         {PRESETS.map(({ label, params: p }) => (
-          <Button key={label} variant="outline" size="sm" onClick={() => newGame(p)}>
+          <Button key={label} variant="outline" size="sm" onClick={() => startGame(p)}>
             {label}
           </Button>
         ))}
       </div>
-      <CustomForm onStart={newGame} />
+      <CustomForm onStart={startGame} />
 
       <div className="font-mono text-lg">
         <span aria-hidden>💣</span>{' '}
@@ -225,7 +236,7 @@ export default function Home() {
         {finished && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60">
             <p className="text-3xl font-bold text-white">{board.status === 'won' ? '🎉 승리!' : '💥 패배'}</p>
-            <Button onClick={() => newGame(params)}>다시하기</Button>
+            <Button onClick={() => startGame(params)}>다시하기</Button>
           </div>
         )}
       </div>
