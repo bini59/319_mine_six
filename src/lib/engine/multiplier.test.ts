@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { cumulativeMultiplier, stepMultiplier } from './multiplier'
-import { openCell } from './board'
+import { cumulativeMultiplier, openedSafeCount, stepMultiplier } from './multiplier'
+import { generateBoard, openCell } from './board'
+import { BEGINNER } from './presets'
 import { START_BALANCE, mergePersisted, useGameStore } from '@/store/game'
+import { emptyStats } from '@/lib/game/stats'
 import type { Board, Cell } from './types'
 
 // Deterministic board with mines pre-placed (same shape as board.test.ts helper).
@@ -28,6 +30,8 @@ function makeBoard(width: number, height: number, mineIndices: number[]): Board 
   return { width, height, mineCount: mineIndices.length, cells, status: 'playing', minesPlaced: true }
 }
 
+// Opens `openedSafe` cells and accrues the matching per-click multiplier,
+// as if each was a separate non-flood click.
 function withOpened(board: Board, openedSafe: number): Board {
   const cells = [...board.cells]
   let remaining = openedSafe
@@ -37,7 +41,10 @@ function withOpened(board: Board, openedSafe: number): Board {
       remaining--
     }
   }
-  return { ...board, cells }
+  const totalSafe = board.width * board.height - board.mineCount
+  let multiplier = board.multiplier ?? 1
+  for (let k = 0; k < openedSafe; k++) multiplier *= stepMultiplier(totalSafe - k, board.mineCount)
+  return { ...board, cells, multiplier }
 }
 
 describe('stepMultiplier', () => {
@@ -65,32 +72,41 @@ describe('cumulativeMultiplier', () => {
     expect(cumulativeMultiplier(board)).toBe(1)
   })
 
-  it('accumulates the product of step multipliers', () => {
-    // opens 1..2: steps at remainingSafe 8 then 7, mines 1
-    const expected = stepMultiplier(8, 1) * stepMultiplier(7, 1)
-    expect(cumulativeMultiplier(withOpened(board, 2))).toBeCloseTo(expected)
+  it('charges one step per risked click at the pre-click odds', () => {
+    // makeBoard(3,3,[8]): cells 4,5,7 are numbered (no flood). Two clicks:
+    // steps at remainingSafe 8 then 7, mines 1.
+    const two = openCell(openCell(board, 1, 1), 2, 1)
+    expect(cumulativeMultiplier(two)).toBeCloseTo(stepMultiplier(8, 1) * stepMultiplier(7, 1))
   })
 
-  it('increases monotonically with each open', () => {
+  it('increases monotonically with each risked click', () => {
+    let b = board
     let prev = 1
-    for (let k = 1; k <= 8; k++) {
-      const m = cumulativeMultiplier(withOpened(board, k))
+    for (const [x, y] of [[1, 1], [2, 1], [1, 2]] as const) {
+      b = openCell(b, x, y)
+      const m = cumulativeMultiplier(b)
       expect(m).toBeGreaterThan(prev)
       prev = m
     }
   })
 
-  it('grows faster on denser boards at equal opens', () => {
-    const sparse = makeBoard(4, 4, [15]) // 1 mine
-    const dense = makeBoard(4, 4, [10, 11, 12, 13, 14, 15]) // 6 mines
-    expect(cumulativeMultiplier(withOpened(dense, 3))).toBeGreaterThan(
-      cumulativeMultiplier(withOpened(sparse, 3)),
-    )
+  it('grows faster on denser boards at equal clicks', () => {
+    const sparse = openCell(makeBoard(4, 4, [15]), 2, 2) // 1 mine, numbered cell
+    const dense = openCell(makeBoard(4, 4, [10, 11, 12, 13, 14, 15]), 1, 1) // 6 mines
+    expect(cumulativeMultiplier(dense)).toBeGreaterThan(cumulativeMultiplier(sparse))
   })
 
-  it('respects the house factor', () => {
-    const opened = withOpened(board, 3)
-    expect(cumulativeMultiplier(opened, 1)).toBeGreaterThan(cumulativeMultiplier(opened, 0.97))
+  it('a flood click pays exactly one step, not one per revealed cell', () => {
+    // Opening the zero-region corner floods most of the board in one click.
+    const flooded = openCell(board, 0, 0)
+    expect(openedSafeCount(flooded)).toBeGreaterThan(1)
+    expect(cumulativeMultiplier(flooded)).toBeCloseTo(stepMultiplier(8, 1))
+  })
+
+  it('the exempt first click pays nothing', () => {
+    let b = generateBoard(BEGINNER)
+    b = openCell(b, 4, 4, () => 0.5)
+    expect(cumulativeMultiplier(b)).toBe(1)
   })
 })
 
@@ -176,12 +192,19 @@ describe('game store: bet → open → cashout lifecycle', () => {
 
 describe('mergePersisted (reload refund)', () => {
   it('refunds an unresolved persisted bet into balance', () => {
-    const current = { balance: 1000, bet: 0, other: 'x' }
-    expect(mergePersisted({ balance: 900, bet: 100 }, current)).toEqual({ balance: 1000, bet: 0, other: 'x' })
+    const current = { balance: 1000, bet: 0, stats: emptyStats(), other: 'x' }
+    expect(mergePersisted({ balance: 900, bet: 100 }, current)).toEqual(current)
   })
 
   it('falls back to current state when nothing persisted', () => {
-    const current = { balance: 1000, bet: 0 }
-    expect(mergePersisted(undefined, current)).toEqual({ balance: 1000, bet: 0 })
+    const current = { balance: 1000, bet: 0, stats: emptyStats() }
+    expect(mergePersisted(undefined, current)).toEqual(current)
+  })
+
+  it('merges persisted stats and defaults missing fields on old blobs', () => {
+    const current = { balance: 1000, bet: 0, stats: emptyStats() }
+    const merged = mergePersisted({ balance: 500, stats: { rounds: 3, wins: 1 } }, current)
+    expect(merged.stats).toEqual({ ...emptyStats(), rounds: 3, wins: 1 })
+    expect(mergePersisted({ balance: 500 }, current).stats).toEqual(emptyStats())
   })
 })

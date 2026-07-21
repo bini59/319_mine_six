@@ -34,6 +34,7 @@ export interface ContractParams {
   nestingDecay: number
   breakPenalty: number
   timingDecay: number
+  bonusScaleSafeCells: number
 }
 
 export const DEFAULT_CONTRACT_PARAMS: ContractParams = {
@@ -41,6 +42,14 @@ export const DEFAULT_CONTRACT_PARAMS: ContractParams = {
   nestingDecay: 0.5,
   breakPenalty: 0.3,
   timingDecay: 1,
+  // M05 tuning: a zone's bonus scales with its (expected) safe-cell count ÷ this.
+  // Each risked click gives the house ~3% (houseFactor 0.97), so the per-cell
+  // bonus rate must stay well below ln(1/0.97) ≈ 0.0305 or tiny zones print
+  // money (measured: 1×1 mimic zone paid EV 2.13 with a flat bonus). Flood
+  // chains also clear zone cells without risked clicks, so the denominator is
+  // padded ×2 over the naive bound — 100 keeps the measured EV of mechanical
+  // zone-grinding under 1 (see simulation.test.ts; 50 measured EV 1.14).
+  bonusScaleSafeCells: 100,
 }
 
 export function rectInBounds(board: Board, rect: Rect): boolean {
@@ -102,29 +111,44 @@ export function signContract(
   if (!cells.some((i) => !board.cells[i].mine && board.cells[i].state !== 'open')) {
     throw new Error('이미 공개되었거나 안전 칸이 없는 구역입니다')
   }
-  const totalSafe = board.width * board.height - board.mineCount
+  const totalCells = board.width * board.height
+  const totalSafe = totalCells - board.mineCount
   const openedFraction = totalSafe > 0 ? openedSafeCount(board) / totalSafe : 0
+  // M05 tuning: bonus is proportional to the risk actually wagered — the
+  // zone's safe cells the player must open. Pre-start (no mines yet) uses the
+  // expected count at board density; post-start uses the actual hidden-safe
+  // count. Density-up is excluded: its bonus is per forced mine, and the local
+  // mine risk already prices it (see simulation.test.ts).
+  const zoneSafeEstimate = board.minesPlaced
+    ? cells.filter((i) => !board.cells[i].mine && board.cells[i].state !== 'open').length
+    : (cells.length * totalSafe) / totalCells
+  const sizeScale = extraMines ? 1 : Math.min(1, zoneSafeEstimate / params.bonusScaleSafeCells)
   return {
     id: contracts.reduce((max, c) => Math.max(max, c.id), 0) + 1,
     rect,
     constraintId,
     multiplierBonus,
     signedAtOpenedFraction: openedFraction,
-    timingMultiplier: timingMultiplier(multiplierBonus, openedFraction, params.timingDecay),
+    timingMultiplier: timingMultiplier(multiplierBonus * sizeScale, openedFraction, params.timingDecay),
     ...(extraMines !== undefined && { extraMines }),
     status: 'active',
   }
 }
 
 // Called after every board change: an active contract clears the moment
-// every safe cell inside its rect is open.
+// every safe cell inside its rect is open — AND at least one of them was
+// opened at risk. Cells revealed by the exempt first click (board.freeOpened)
+// and mines forced into the zone don't count: without this, a zone covered by
+// the first click (or filled with density mines) cleared itself for free
+// (M05 Monte Carlo exploit).
 export function resolveContracts(board: Board, contracts: readonly Contract[]): Contract[] {
+  const free = new Set(board.freeOpened ?? [])
   return contracts.map((c) => {
     if (c.status !== 'active') return c
-    const cleared = rectCells(c.rect, board.width).every((i) => {
-      const cell = board.cells[i]
-      return cell.mine || cell.state === 'open'
-    })
+    const cells = rectCells(c.rect, board.width)
+    const cleared =
+      cells.every((i) => board.cells[i].mine || board.cells[i].state === 'open') &&
+      cells.some((i) => !board.cells[i].mine && board.cells[i].state === 'open' && !free.has(i))
     return cleared ? { ...c, status: 'cleared' } : c
   })
 }

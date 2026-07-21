@@ -19,14 +19,11 @@ export function openedSafeCount(board: Board): number {
   return board.cells.filter((c) => c.state === 'open' && !c.mine).length
 }
 
-// Derived from board state — no separate counter to keep in sync.
-// Product of step multipliers for each safe open so far; 1.0 before any open.
-export function cumulativeMultiplier(board: Board, houseFactor: number = DEFAULT_HOUSE_FACTOR): number {
-  const totalSafe = board.width * board.height - board.mineCount
-  const opened = openedSafeCount(board)
-  let multiplier = 1
-  for (let k = 0; k < opened; k++) {
-    multiplier *= stepMultiplier(totalSafe - k, board.mineCount, houseFactor)
-  }
-  return multiplier
+// The board carries its own multiplier, accumulated one step per risked click
+// inside openCell/chord (M05 balance): the exempt first click pays nothing and
+// flood reveals are free information. Deriving a per-revealed-cell product here
+// let a single lucky click pay 1.15^flood — simulation.test.ts measured EV in
+// the billions before the change.
+export function cumulativeMultiplier(board: Board): number {
+  return board.multiplier ?? 1
 }

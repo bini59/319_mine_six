@@ -16,6 +16,7 @@ import { cumulativeMultiplier, openedSafeCount } from '@/lib/engine/multiplier'
 import type { Board } from '@/lib/engine/types'
 import { BEGINNER, type BoardParams } from '@/lib/engine/presets'
 import type { RoundEvent } from '@/lib/game/death-summary'
+import { emptyStats, recordCashout, recordSettle, recordSign, type Stats } from '@/lib/game/stats'
 
 export const START_BALANCE = 1000
 
@@ -33,6 +34,8 @@ interface GameState {
   lastClear: { rects: Rect[]; combo: number; multiplier: number; at: number } | null
   // Round-scoped choice log for the death summary (#10). Reset on newGame, never persisted.
   history: RoundEvent[]
+  // Lifetime play stats (#11). Persisted alongside the balance.
+  stats: Stats
   newGame: (params: BoardParams, bet?: number) => void
   placeBet: (amount: number) => void
   open: (x: number, y: number) => void
@@ -52,14 +55,21 @@ function clampBet(amount: number, balance: number): number {
 // Bet is deducted up-front, so a mine click needs no settlement — the loss
 // already happened. Win pays like a cashout at full board.
 // Payout multiplier = base curve × contract factors (cleared/broken), see contract.ts.
-function settle(state: Pick<GameState, 'bet' | 'balance' | 'contracts'>, board: Board): Partial<GameState> {
+function settle(
+  state: Pick<GameState, 'bet' | 'balance' | 'contracts' | 'board' | 'stats'>,
+  board: Board,
+): Partial<GameState> {
   const contracts = resolveContracts(board, state.contracts)
+  // Stats count only the playing→finished transition — repeat no-op settles
+  // on an already-finished board must not double-count the round (#11).
+  const finished = state.board.status === 'playing' && board.status !== 'playing'
+  const stats = finished ? recordSettle(state.stats, board.status as 'won' | 'lost') : state.stats
   if (board.status === 'won' && state.bet > 0) {
     const payout = Math.round(state.bet * cumulativeMultiplier(board) * contractsMultiplier(contracts))
-    return { board, contracts, bet: 0, balance: state.balance + payout }
+    return { board, contracts, stats, bet: 0, balance: state.balance + payout }
   }
-  if (board.status === 'lost') return { board, contracts, bet: 0 }
-  return { board, contracts }
+  if (board.status === 'lost') return { board, contracts, stats, bet: 0 }
+  return { board, contracts, stats }
 }
 
 // Mimic lies are assigned lazily once mines exist (true adjacents needed).
@@ -90,11 +100,16 @@ function withClearFx(prev: readonly Contract[], partial: Partial<GameState>): Pa
 
 // Refund an unresolved mid-round stake on reload: the board isn't persisted,
 // so a persisted bet has no round to resolve into — give it back.
-export function mergePersisted<T extends { balance: number; bet: number }>(persisted: unknown, current: T): T {
-  const p = (persisted ?? {}) as Partial<Pick<T, 'balance' | 'bet'>>
+export function mergePersisted<T extends { balance: number; bet: number; stats: Stats }>(
+  persisted: unknown,
+  current: T,
+): T {
+  const p = (persisted ?? {}) as Partial<{ balance: number; bet: number; stats: Partial<Stats> }>
   const balance = typeof p.balance === 'number' ? p.balance : current.balance
   const bet = typeof p.bet === 'number' ? p.bet : 0
-  return { ...current, balance: balance + bet, bet: 0 }
+  // Old persisted blobs predate stats — fall back to zeros, spread guards missing keys.
+  const stats = typeof p.stats?.rounds === 'number' ? { ...emptyStats(), ...p.stats } : current.stats
+  return { ...current, balance: balance + bet, bet: 0, stats }
 }
 
 // generateBoard is deterministic before the first click, so SSR/client hydration matches
@@ -110,6 +125,7 @@ export const useGameStore = create<GameState>()(
       flagBlockedAt: null,
       lastClear: null,
       history: [],
+      stats: emptyStats(),
       newGame: (params, bet = 0) =>
         set((s) => {
           const b = clampBet(bet, s.balance)
@@ -190,6 +206,7 @@ export const useGameStore = create<GameState>()(
             flagBlockedAt: null,
             lastClear: null,
             history: [...s.history, { type: 'cashout' as const, multiplier }],
+            stats: recordCashout(s.stats, multiplier),
           }
         }),
       signContract: (request) =>
@@ -198,6 +215,14 @@ export const useGameStore = create<GameState>()(
           const def = CONSTRAINTS.find((c) => c.id === request.constraintId)
           if (def?.preStartOnly && s.board.minesPlaced) return s
           if (request.constraintId === 'mimic' && mimicRectTooLarge(request.rect)) return s
+          // M05 tuning: cap the density claim at what the zone can physically
+          // hold (one cell must stay safe) and recompute the bonus from the
+          // capped count — otherwise a 1×1 zone could claim +3 mines' bonus.
+          if (request.constraintId === 'density-up') {
+            const cap = Math.max(0, request.rect.w * request.rect.h - 1)
+            const extra = Math.min(request.extraMines ?? 0, cap)
+            request = { ...request, extraMines: extra, multiplierBonus: extra * (def?.extraMinesBonus ?? 0.2) }
+          }
           try {
             const contract = signContractEngine(s.board, s.contracts, request)
             // mineCount bumps once at signing so the multiplier curve, win check
@@ -213,6 +238,7 @@ export const useGameStore = create<GameState>()(
               flagBlockedAt: null,
               lastClear: null,
               history: [...s.history, { type: 'sign' as const, constraintId: request.constraintId, rect: request.rect }],
+              stats: recordSign(s.stats),
             }
           } catch {
             // ponytail: invalid sign (out of bounds / nesting cap) is a no-op — UI (#6) pre-validates
@@ -240,7 +266,7 @@ export const useGameStore = create<GameState>()(
       name: 'mine-six-points',
       // Persist the bet too: the board isn't persisted, so an unresolved
       // mid-round stake is refunded on reload instead of silently burned.
-      partialize: (s) => ({ balance: s.balance, bet: s.bet }),
+      partialize: (s) => ({ balance: s.balance, bet: s.bet, stats: s.stats }),
       merge: mergePersisted,
     },
   ),

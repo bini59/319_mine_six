@@ -117,6 +117,16 @@ describe('density-up enforcement (store)', () => {
     expect(zoneMines).toBeGreaterThanOrEqual(2)
   })
 
+  it('caps extraMines to zone capacity and recomputes the bonus', () => {
+    useGameStore
+      .getState()
+      .signContract({ rect: { x: 0, y: 0, w: 1, h: 1 }, constraintId: 'density-up', multiplierBonus: 0.6, extraMines: 3 })
+    const contract = useGameStore.getState().contracts[0]
+    expect(contract.extraMines).toBe(0) // 1×1 zone holds at most w*h−1 = 0 extra mines
+    expect(contract.multiplierBonus).toBe(0)
+    expect(useGameStore.getState().board.mineCount).toBe(10)
+  })
+
   it('cannot be signed once mines are placed', () => {
     useGameStore.getState().open(8, 8)
     useGameStore

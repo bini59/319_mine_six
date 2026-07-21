@@ -14,8 +14,10 @@ export function Hud() {
 
   const current = cumulativeMultiplier(board)
   const remainingSafe = board.width * board.height - board.mineCount - openedSafeCount(board)
-  // ponytail: stepMultiplier throws at remainingSafe <= 0 (board won) — show a dash instead
-  const next = remainingSafe > 0 ? current * stepMultiplier(remainingSafe, board.mineCount) : null
+  // ponytail: stepMultiplier throws at remainingSafe <= 0 (board won) — show a dash instead.
+  // Before mines are placed the exempt first click pays ×1, so no lift is promised.
+  const next =
+    remainingSafe > 0 && board.minesPlaced ? current * stepMultiplier(remainingSafe, board.mineCount) : null
   const payout = Math.round(bet * current)
   const canCashout = board.status === 'playing' && bet > 0 && !cashedOut
 
