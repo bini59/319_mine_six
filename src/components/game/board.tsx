@@ -1,6 +1,8 @@
 'use client'
 
 import { useGameStore } from '@/store/game'
+import { activeLayersAt, type Corner } from '@/lib/engine/constraints'
+import type { Rect } from '@/lib/engine/contract'
 import type { Cell } from '@/lib/engine/types'
 
 // Classic minesweeper number palette (1–8)
@@ -16,6 +18,9 @@ const NUMBER_COLORS = [
   'text-gray-600',
 ]
 
+// Purple zone rings: 1 layer vs 2 layers (nestingCap) must read differently.
+const ZONE_RINGS = ['', 'ring-2 ring-inset ring-purple-500', 'ring-2 ring-inset ring-purple-800 bg-purple-500/20']
+
 function cellContent(cell: Cell, lost: boolean): string {
   if (cell.state === 'flagged') return '🚩'
   if (cell.state === 'hidden') return ''
@@ -23,20 +28,36 @@ function cellContent(cell: Cell, lost: boolean): string {
   return cell.adjacent > 0 ? String(cell.adjacent) : ''
 }
 
-export function GameBoard() {
-  const { board, open, flag, chord } = useGameStore()
+function inRect(rect: Rect | null, x: number, y: number): boolean {
+  return !!rect && x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h
+}
+
+export interface ContractSelection {
+  contractMode: boolean
+  preview: Rect | null
+  onCellPointerDown: (c: Corner) => void
+  onCellPointerEnter: (c: Corner) => void
+  onCellPointerUp: (c: Corner) => void
+}
+
+export function GameBoard({ selection }: { selection?: ContractSelection }) {
+  const { board, contracts, open, flag, chord } = useGameStore()
   const lost = board.status === 'lost'
+  const contractMode = selection?.contractMode ?? false
 
   return (
     <div
       className="grid w-fit max-w-full select-none gap-px overflow-auto bg-gray-400 p-px dark:bg-gray-600"
-      style={{ gridTemplateColumns: `repeat(${board.width}, minmax(0, 1fr))` }}
+      // ponytail: touch drag-select is not supported — touch users tap two corners.
+      style={{ gridTemplateColumns: `repeat(${board.width}, minmax(0, 1fr))`, touchAction: contractMode ? 'none' : undefined }}
       onContextMenu={(e) => e.preventDefault()}
     >
       {board.cells.map((cell, i) => {
         const x = i % board.width
-        const y = Math.floor(i / board.width)
+        const y = Math.floor((i / board.width))
         const isOpen = cell.state === 'open'
+        const layers = Math.min(activeLayersAt(i, contracts, board.width), ZONE_RINGS.length - 1)
+        const previewing = contractMode && inRect(selection?.preview ?? null, x, y)
         return (
           <button
             key={i}
@@ -48,15 +69,25 @@ export function GameBoard() {
                   ? 'bg-red-300'
                   : `bg-gray-200 dark:bg-gray-700 ${NUMBER_COLORS[cell.adjacent]}`
                 : 'bg-gray-300 hover:bg-gray-200 active:bg-gray-100 dark:bg-gray-500 dark:hover:bg-gray-400'
-            }`}
-            onClick={() => (isOpen && cell.adjacent > 0 ? chord(x, y) : open(x, y))}
-            onContextMenu={() => flag(x, y)}
+            } ${previewing ? 'bg-purple-400/60 dark:bg-purple-400/60' : ZONE_RINGS[layers]}`}
+            onClick={() => {
+              if (contractMode) return
+              if (isOpen && cell.adjacent > 0) chord(x, y)
+              else open(x, y)
+            }}
+            onContextMenu={() => {
+              if (!contractMode) flag(x, y)
+            }}
             onKeyDown={(e) => {
+              if (contractMode) return
               if (e.key === 'f' || (e.shiftKey && e.key === 'Enter')) {
                 e.preventDefault()
                 flag(x, y)
               }
             }}
+            onPointerDown={() => contractMode && selection?.onCellPointerDown({ x, y })}
+            onPointerEnter={() => contractMode && selection?.onCellPointerEnter({ x, y })}
+            onPointerUp={() => contractMode && selection?.onCellPointerUp({ x, y })}
           >
             {cellContent(cell, lost)}
           </button>
