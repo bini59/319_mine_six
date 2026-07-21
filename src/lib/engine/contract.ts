@@ -20,6 +20,8 @@ export interface Contract {
   signedAtOpenedFraction: number
   // Effective bonus fixed at signing time (timing curve applied once, never recomputed).
   timingMultiplier: number
+  // density-up only: forced extra mines in the zone, fixed at signing (#7).
+  extraMines?: number
   status: ContractStatus
 }
 
@@ -72,13 +74,14 @@ export interface SignRequest {
   rect: Rect
   constraintId: string
   multiplierBonus: number
+  extraMines?: number
 }
 
 // Trust boundary for contract creation: bounds + per-cell nesting cap enforced here.
 export function signContract(
   board: Board,
   contracts: readonly Contract[],
-  { rect, constraintId, multiplierBonus }: SignRequest,
+  { rect, constraintId, multiplierBonus, extraMines }: SignRequest,
   params: ContractParams = DEFAULT_CONTRACT_PARAMS,
 ): Contract {
   if (!rectInBounds(board, rect)) throw new Error('계약 구역이 보드 범위를 벗어났습니다')
@@ -104,6 +107,7 @@ export function signContract(
     multiplierBonus,
     signedAtOpenedFraction: openedFraction,
     timingMultiplier: timingMultiplier(multiplierBonus, openedFraction, params.timingDecay),
+    ...(extraMines !== undefined && { extraMines }),
     status: 'active',
   }
 }

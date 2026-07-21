@@ -4,15 +4,20 @@ export interface ConstraintDef {
   id: string
   label: string
   bonus: number
+  // Enforcement metadata (#7): signable only before the first cell opens.
+  preStartOnly?: boolean
+  // Flags are blocked inside active zones with this constraint.
+  noFlag?: boolean
+  // density-up: bonus per forced extra mine (base `bonus` stays 0).
+  extraMinesBonus?: number
 }
 
-// PRD 4.4 catalog — the picker only needs id/label/bonus; enforcement lands in #7/#8.
-// ponytail: 지뢰 밀도 업(+0.2x/개, 시작 전 전용) is excluded until #7 wires the
-// pre-start-only rule; add it here with a `preStartOnly` flag when that lands.
+// PRD 4.4 catalog — bonuses are the manual-tuning knobs (PRD 4.7 is P2).
 export const CONSTRAINTS: ConstraintDef[] = [
-  { id: 'no-flag', label: '무깃발', bonus: 0.4 },
+  { id: 'no-flag', label: '무깃발', bonus: 0.4, noFlag: true },
   { id: 'blind-number', label: '블라인드 숫자', bonus: 0.5 },
   { id: 'mimic', label: '미믹', bonus: 1.2 },
+  { id: 'density-up', label: '지뢰 밀도 업', bonus: 0, preStartOnly: true, extraMinesBonus: 0.2 },
 ]
 
 export interface Corner {
@@ -30,16 +35,21 @@ export function rectFromCorners(a: Corner, b: Corner): Rect {
   }
 }
 
+function covers(rect: Rect, x: number, y: number): boolean {
+  return x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h
+}
+
 // How many ACTIVE contracts cover this cell — drives the purple ring depth (nestingCap 2).
 export function activeLayersAt(index: number, contracts: readonly Contract[], boardWidth: number): number {
   const x = index % boardWidth
   const y = Math.floor(index / boardWidth)
-  return contracts.filter(
-    (c) =>
-      c.status === 'active' &&
-      x >= c.rect.x &&
-      x < c.rect.x + c.rect.w &&
-      y >= c.rect.y &&
-      y < c.rect.y + c.rect.h,
-  ).length
+  return contracts.filter((c) => c.status === 'active' && covers(c.rect, x, y)).length
+}
+
+// 무깃발 enforcement: a cell inside any ACTIVE no-flag zone rejects flags.
+// break/clear lifts the block automatically — this is a pure derivation.
+export function isFlagBlockedAt(index: number, contracts: readonly Contract[], boardWidth: number): boolean {
+  const x = index % boardWidth
+  const y = Math.floor(index / boardWidth)
+  return contracts.some((c) => c.status === 'active' && c.constraintId === 'no-flag' && covers(c.rect, x, y))
 }

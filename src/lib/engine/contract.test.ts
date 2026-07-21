@@ -240,3 +240,18 @@ describe('signContract risk guard (exploit prevention)', () => {
     expect(contract.status).toBe('active')
   })
 })
+
+describe('extraMines carriage (density-up)', () => {
+  it('fixes extraMines on the contract at signing time', () => {
+    const board = makeBoard(4, 4, [15])
+    const c = signContract(board, [], {
+      rect: { x: 0, y: 0, w: 2, h: 2 },
+      constraintId: 'density-up',
+      multiplierBonus: 0.4,
+      extraMines: 2,
+    })
+    expect(c.extraMines).toBe(2)
+    const plain = signContract(board, [], { rect: { x: 2, y: 0, w: 2, h: 2 }, constraintId: 'no-flag', multiplierBonus: 0.4 })
+    expect(plain.extraMines).toBeUndefined()
+  })
+})

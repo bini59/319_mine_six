@@ -184,3 +184,37 @@ describe('input guards', () => {
     }
   })
 })
+
+describe('forced zones (density-up)', () => {
+  it('forces mines inside the zone and keeps mineCount == actual mines', () => {
+    const base = generateBoard({ width: 9, height: 9, mines: 5 })
+    const bumped = { ...base, mineCount: 7 } // sign-time bump of +2
+    const rect = { x: 0, y: 0, w: 2, h: 2 }
+    const opened = openCell(bumped, 8, 8, Math.random, [{ rect, count: 2 }])
+
+    const mines = opened.cells.map((c, i) => (c.mine ? i : -1)).filter((i) => i >= 0)
+    expect(opened.mineCount).toBe(7)
+    expect(mines).toHaveLength(7)
+    const zone = new Set([0, 1, 9, 10])
+    expect(mines.filter((i) => zone.has(i)).length).toBeGreaterThanOrEqual(2)
+    // First-click exemption never violated
+    const exempt = new Set([80, 79, 71, 70])
+    expect(mines.some((i) => exempt.has(i))).toBe(false)
+  })
+
+  it('caps a forced zone smaller than the requested count', () => {
+    const base = generateBoard({ width: 9, height: 9, mines: 3 })
+    const bumped = { ...base, mineCount: 8 }
+    const opened = openCell(bumped, 8, 8, Math.random, [{ rect: { x: 0, y: 0, w: 1, h: 1 }, count: 5 }])
+    expect(opened.cells[0].mine).toBe(true) // the single zone cell got its mine
+    expect(opened.cells.filter((c) => c.mine).length).toBe(8) // rest filled globally
+  })
+
+  it('reconciles mineCount when the board cannot hold the bumped count', () => {
+    const base = generateBoard({ width: 9, height: 9, mines: 72 }) // max for 9x9
+    const bumped = { ...base, mineCount: 75 }
+    const opened = openCell(bumped, 4, 4)
+    expect(opened.mineCount).toBe(72)
+    expect(opened.cells.filter((c) => c.mine).length).toBe(72)
+  })
+})

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { chord, generateBoard, openCell, toggleFlag } from '@/lib/engine/board'
+import { chord, generateBoard, openCell, toggleFlag, type ForcedZone } from '@/lib/engine/board'
+import { CONSTRAINTS, isFlagBlockedAt } from '@/lib/engine/constraints'
 import {
   breakContract as breakContractEngine,
   contractsMultiplier,
@@ -22,6 +23,8 @@ interface GameState {
   bet: number
   cashedOut: boolean
   contracts: Contract[]
+  // Transient: index of the last flag attempt blocked by a no-flag zone (UI flash).
+  flagBlockedAt: number | null
   newGame: (params: BoardParams, bet?: number) => void
   placeBet: (amount: number) => void
   open: (x: number, y: number) => void
@@ -70,10 +73,19 @@ export const useGameStore = create<GameState>()(
       bet: 0,
       cashedOut: false,
       contracts: [],
+      flagBlockedAt: null,
       newGame: (params, bet = 0) =>
         set((s) => {
           const b = clampBet(bet, s.balance)
-          return { board: generateBoard(params), params, bet: b, balance: s.balance - b, cashedOut: false, contracts: [] }
+          return {
+            board: generateBoard(params),
+            params,
+            bet: b,
+            balance: s.balance - b,
+            cashedOut: false,
+            contracts: [],
+            flagBlockedAt: null,
+          }
         }),
       placeBet: (amount) =>
         set((s) => {
@@ -81,9 +93,26 @@ export const useGameStore = create<GameState>()(
           const b = clampBet(amount, s.balance)
           return { bet: b, balance: s.balance - b }
         }),
-      open: (x, y) => set((s) => (s.cashedOut ? s : settle(s, openCell(s.board, x, y)))),
-      flag: (x, y) => set((s) => (s.cashedOut ? s : { board: toggleFlag(s.board, x, y) })),
-      chord: (x, y) => set((s) => (s.cashedOut ? s : settle(s, chord(s.board, x, y)))),
+      open: (x, y) =>
+        set((s) => {
+          if (s.cashedOut) return s
+          // Active density-up zones force their extra mines at lazy placement time.
+          const zones: ForcedZone[] = s.board.minesPlaced
+            ? []
+            : s.contracts
+                .filter((c) => c.status === 'active' && c.constraintId === 'density-up' && c.extraMines)
+                .map((c) => ({ rect: c.rect, count: c.extraMines as number }))
+          return { ...settle(s, openCell(s.board, x, y, Math.random, zones)), flagBlockedAt: null }
+        }),
+      flag: (x, y) =>
+        set((s) => {
+          if (s.cashedOut) return s
+          const index = y * s.board.width + x
+          // ponytail: active 계약만 enforce — break/clear는 파생 판정이라 자동 해제
+          if (isFlagBlockedAt(index, s.contracts, s.board.width)) return { flagBlockedAt: index }
+          return { board: toggleFlag(s.board, x, y), flagBlockedAt: null }
+        }),
+      chord: (x, y) => set((s) => (s.cashedOut ? s : { ...settle(s, chord(s.board, x, y)), flagBlockedAt: null })),
       cashout: () =>
         set((s) => {
           if (s.board.status !== 'playing' || s.bet <= 0 || s.cashedOut) return s
@@ -91,13 +120,27 @@ export const useGameStore = create<GameState>()(
           // changes). Do NOT resolve here — cashout must pay only already-cleared
           // contracts, or sign-over-open zones would earn at cashout time.
           const payout = Math.round(s.bet * cumulativeMultiplier(s.board) * contractsMultiplier(s.contracts))
-          return { balance: s.balance + payout, bet: 0, cashedOut: true }
+          return { balance: s.balance + payout, bet: 0, cashedOut: true, flagBlockedAt: null }
         }),
       signContract: (request) =>
         set((s) => {
           if (s.board.status !== 'playing' || s.cashedOut) return s
+          const def = CONSTRAINTS.find((c) => c.id === request.constraintId)
+          if (def?.preStartOnly && s.board.minesPlaced) return s
           try {
-            return { contracts: [...s.contracts, signContractEngine(s.board, s.contracts, request)] }
+            const contract = signContractEngine(s.board, s.contracts, request)
+            // mineCount bumps once at signing so the multiplier curve, win check
+            // and HUD counter all see the extra mines coherently. Actual placement
+            // (and any exemption cap) reconciles mineCount inside openCell.
+            // Invariant: only safe because preStartOnly guarantees opened === 0 here —
+            // cumulativeMultiplier reprices from mineCount, so a mid-game bump would
+            // retroactively reprice already-opened cells (exploit).
+            const extra = contract.constraintId === 'density-up' ? (contract.extraMines ?? 0) : 0
+            return {
+              contracts: [...s.contracts, contract],
+              board: extra > 0 ? { ...s.board, mineCount: s.board.mineCount + extra } : s.board,
+              flagBlockedAt: null,
+            }
           } catch {
             // ponytail: invalid sign (out of bounds / nesting cap) is a no-op — UI (#6) pre-validates
             return s
@@ -105,7 +148,9 @@ export const useGameStore = create<GameState>()(
         }),
       breakContract: (id) =>
         set((s) =>
-          s.board.status === 'playing' && !s.cashedOut ? { contracts: breakContractEngine(s.contracts, id) } : s,
+          s.board.status === 'playing' && !s.cashedOut
+            ? { contracts: breakContractEngine(s.contracts, id), flagBlockedAt: null }
+            : s,
         ),
       // ponytail: free refill, no cooldown — virtual points only (PRD 2.2)
       refill: () => set((s) => (s.balance <= 0 && s.bet === 0 ? { balance: START_BALANCE } : s)),
