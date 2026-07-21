@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { GameBoard, type ContractSelection } from '@/components/game/board'
 import { ContractHud } from '@/components/game/contract-hud'
+import { DeathSummary } from '@/components/game/death-summary'
 import { Hud } from '@/components/game/hud'
 import { Button } from '@/components/ui/button'
 import { BEGINNER, EXPERT, INTERMEDIATE, custom, type BoardParams } from '@/lib/engine/presets'
@@ -157,6 +158,17 @@ export default function Home() {
     newGame(p)
   }
 
+  // Instant retry: Enter restarts with the same params once the round ends
+  // (PRD 5 — 사망 후 30초 내 리트라이 목표). Re-registering per render is cheap.
+  useEffect(() => {
+    if (!finished) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.repeat) startGame(params)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
   // Pre-validate so the store's silent no-op never leaves the user without feedback.
   const validateRect = (rect: Rect): string => {
     if (!rectInBounds(board, rect)) return '구역이 보드 범위를 벗어났습니다'
@@ -262,9 +274,10 @@ export default function Home() {
       <div className="relative">
         <GameBoard selection={selection} />
         {finished && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-auto bg-black/60 p-2">
             <p className="text-3xl font-bold text-white">{board.status === 'won' ? '🎉 승리!' : '💥 패배'}</p>
-            <Button onClick={() => startGame(params)}>다시하기</Button>
+            <DeathSummary />
+            <Button onClick={() => startGame(params)}>다시하기 (Enter)</Button>
           </div>
         )}
       </div>
