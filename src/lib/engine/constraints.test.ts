@@ -182,7 +182,7 @@ describe('pickMimic', () => {
     expect(rectCells(rect, board.width)).toContain(picked!.mimicIndex)
     expect(board.cells[picked!.mimicIndex].mine).toBe(false)
     expect(picked!.mimicValue).not.toBe(board.cells[picked!.mimicIndex].adjacent)
-    expect(picked!.mimicValue).toBeGreaterThanOrEqual(0)
+    expect(picked!.mimicValue).toBeGreaterThanOrEqual(1)
     expect(picked!.mimicValue).toBeLessThanOrEqual(8)
   })
 

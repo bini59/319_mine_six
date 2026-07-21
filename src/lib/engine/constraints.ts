@@ -87,9 +87,10 @@ export function pickMimic(
   if (candidates.length === 0) return null
   const mimicIndex = candidates[Math.floor(rng() * candidates.length)]
   const truth = board.cells[mimicIndex].adjacent
-  // 0–8 minus the truth = 8 options; shift picks past the truth to skip it.
-  const pick = Math.floor(rng() * 8)
-  const mimicValue = pick >= truth ? pick + 1 : pick
+  // Lie must be a visible digit: a lying 0 renders as a blank cell, which both
+  // mimics a flood-open and self-reveals (a true 0 would have flooded).
+  const options = [1, 2, 3, 4, 5, 6, 7, 8].filter((v) => v !== truth)
+  const mimicValue = options[Math.floor(rng() * options.length)]
   return { mimicIndex, mimicValue }
 }
 
