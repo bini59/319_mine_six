@@ -2,8 +2,10 @@
 
 import { useState } from 'react'
 import { GameBoard } from '@/components/game/board'
+import { Hud } from '@/components/game/hud'
 import { Button } from '@/components/ui/button'
 import { BEGINNER, EXPERT, INTERMEDIATE, custom, type BoardParams } from '@/lib/engine/presets'
+import { openedSafeCount } from '@/lib/engine/multiplier'
 import { useGameStore } from '@/store/game'
 
 const PRESETS: { label: string; params: BoardParams }[] = [
@@ -44,6 +46,34 @@ function CustomForm({ onStart }: { onStart: (params: BoardParams) => void }) {
   )
 }
 
+function BetForm() {
+  const { board, bet, balance, cashedOut, placeBet } = useGameStore()
+  const [amount, setAmount] = useState('100')
+  // Bets are only placeable before the first cell is opened
+  if (openedSafeCount(board) > 0 || bet > 0 || board.status !== 'playing' || cashedOut) return null
+
+  return (
+    <form
+      className="flex items-center gap-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        placeBet(Number(amount))
+      }}
+    >
+      <input
+        className="w-24 rounded border px-2 py-1 text-sm dark:bg-gray-800"
+        inputMode="numeric"
+        value={amount}
+        onChange={(e) => setAmount(e.target.value)}
+        aria-label="베팅액"
+      />
+      <Button type="submit" size="sm" disabled={balance <= 0}>
+        베팅
+      </Button>
+    </form>
+  )
+}
+
 export default function Home() {
   const { board, params, newGame } = useGameStore()
   const flags = board.cells.filter((c) => c.state === 'flagged').length
@@ -68,6 +98,9 @@ export default function Home() {
           {board.mineCount - flags}
         </span>
       </div>
+
+      <BetForm />
+      <Hud />
 
       <div className="relative">
         <GameBoard />
