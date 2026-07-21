@@ -1,52 +1,80 @@
-import Image from "next/image";
+'use client'
+
+import { useState } from 'react'
+import { GameBoard } from '@/components/game/board'
+import { Button } from '@/components/ui/button'
+import { BEGINNER, EXPERT, INTERMEDIATE, custom, type BoardParams } from '@/lib/engine/presets'
+import { useGameStore } from '@/store/game'
+
+const PRESETS: { label: string; params: BoardParams }[] = [
+  { label: '초급 9×9', params: BEGINNER },
+  { label: '중급 16×16', params: INTERMEDIATE },
+  { label: '고급 30×16', params: EXPERT },
+]
+
+function CustomForm({ onStart }: { onStart: (params: BoardParams) => void }) {
+  const [w, setW] = useState('9')
+  const [h, setH] = useState('9')
+  const [m, setM] = useState('10')
+  const [error, setError] = useState('')
+
+  const inputClass = 'w-16 rounded border px-2 py-1 text-sm dark:bg-gray-800'
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        try {
+          onStart(custom(Number(w), Number(h), Number(m)))
+          setError('')
+        } catch (err) {
+          setError(err instanceof Error ? err.message : '잘못된 설정')
+        }
+      }}
+    >
+      <input className={inputClass} value={w} onChange={(e) => setW(e.target.value)} aria-label="가로" />
+      <span>×</span>
+      <input className={inputClass} value={h} onChange={(e) => setH(e.target.value)} aria-label="세로" />
+      <input className={inputClass} value={m} onChange={(e) => setM(e.target.value)} aria-label="지뢰 수" />
+      <Button type="submit" variant="secondary" size="sm">
+        커스텀 시작
+      </Button>
+      {error && <span className="text-sm text-red-600">{error}</span>}
+    </form>
+  )
+}
 
 export default function Home() {
-	return (
-		<div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-			<main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-				<Image className="dark:invert" src="/next.svg" alt="Next.js logo" width={180} height={38} priority />
-				<ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-					<li className="mb-2 tracking-[-.01em]">
-						Get started by editing{" "}
-						<code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-							src/app/page.tsx
-						</code>
-						.
-					</li>
-					<li className="tracking-[-.01em]">Save and see your changes instantly.</li>
-				</ol>
+  const { board, params, newGame } = useGameStore()
+  const flags = board.cells.filter((c) => c.state === 'flagged').length
+  const finished = board.status !== 'playing'
 
-				<div className="flex gap-4 items-center flex-col sm:flex-row">
-					<a
-						className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-						href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-						target="_blank"
-						rel="noopener noreferrer"
-					>
-						Read our docs
-					</a>
-				</div>
-			</main>
-			<footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-				<a
-					className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-					href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-					target="_blank"
-					rel="noopener noreferrer"
-				>
-					<Image aria-hidden src="/file.svg" alt="File icon" width={16} height={16} />
-					Learn
-				</a>
-				<a
-					className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-					href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-					target="_blank"
-					rel="noopener noreferrer"
-				>
-					<Image aria-hidden src="/globe.svg" alt="Globe icon" width={16} height={16} />
-					Go to nextjs.org →
-				</a>
-			</footer>
-		</div>
-	);
+  return (
+    <main className="flex min-h-screen flex-col items-center gap-4 p-4 sm:p-8">
+      <h1 className="text-2xl font-bold">지뢰찾기</h1>
+
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        {PRESETS.map(({ label, params: p }) => (
+          <Button key={label} variant="outline" size="sm" onClick={() => newGame(p)}>
+            {label}
+          </Button>
+        ))}
+      </div>
+      <CustomForm onStart={newGame} />
+
+      <div className="font-mono text-lg" aria-live="polite">
+        💣 {board.mineCount - flags}
+      </div>
+
+      <div className="relative">
+        <GameBoard />
+        {finished && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60">
+            <p className="text-3xl font-bold text-white">{board.status === 'won' ? '🎉 승리!' : '💥 패배'}</p>
+            <Button onClick={() => newGame(params)}>다시하기</Button>
+          </div>
+        )}
+      </div>
+    </main>
+  )
 }
