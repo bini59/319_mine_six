@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { chord, generateBoard, openCell, toggleFlag, type ForcedZone } from '@/lib/engine/board'
-import { CONSTRAINTS, isFlagBlockedAt } from '@/lib/engine/constraints'
+import { CONSTRAINTS, isFlagBlockedAt, mimicRectTooLarge, resolveMimics } from '@/lib/engine/constraints'
 import {
   breakContract as breakContractEngine,
   contractsMultiplier,
@@ -54,6 +54,14 @@ function settle(state: Pick<GameState, 'bet' | 'balance' | 'contracts'>, board: 
   return { board, contracts }
 }
 
+// Mimic lies are assigned lazily once mines exist (true adjacents needed).
+// Applied after settle on every board-changing action.
+function withMimics(partial: Partial<GameState>, rng: () => number): Partial<GameState> {
+  const { board, contracts } = partial
+  if (!board?.minesPlaced || !contracts) return partial
+  return { ...partial, contracts: resolveMimics(board, contracts, rng) }
+}
+
 // Refund an unresolved mid-round stake on reload: the board isn't persisted,
 // so a persisted bet has no round to resolve into — give it back.
 export function mergePersisted<T extends { balance: number; bet: number }>(persisted: unknown, current: T): T {
@@ -102,7 +110,7 @@ export const useGameStore = create<GameState>()(
             : s.contracts
                 .filter((c) => c.status === 'active' && c.constraintId === 'density-up' && c.extraMines)
                 .map((c) => ({ rect: c.rect, count: c.extraMines as number }))
-          return { ...settle(s, openCell(s.board, x, y, Math.random, zones)), flagBlockedAt: null }
+          return { ...withMimics(settle(s, openCell(s.board, x, y, Math.random, zones)), Math.random), flagBlockedAt: null }
         }),
       flag: (x, y) =>
         set((s) => {
@@ -112,7 +120,10 @@ export const useGameStore = create<GameState>()(
           if (isFlagBlockedAt(index, s.contracts, s.board.width)) return { flagBlockedAt: index }
           return { board: toggleFlag(s.board, x, y), flagBlockedAt: null }
         }),
-      chord: (x, y) => set((s) => (s.cashedOut ? s : { ...settle(s, chord(s.board, x, y)), flagBlockedAt: null })),
+      chord: (x, y) =>
+        set((s) =>
+          s.cashedOut ? s : { ...withMimics(settle(s, chord(s.board, x, y)), Math.random), flagBlockedAt: null },
+        ),
       cashout: () =>
         set((s) => {
           if (s.board.status !== 'playing' || s.bet <= 0 || s.cashedOut) return s
@@ -127,6 +138,7 @@ export const useGameStore = create<GameState>()(
           if (s.board.status !== 'playing' || s.cashedOut) return s
           const def = CONSTRAINTS.find((c) => c.id === request.constraintId)
           if (def?.preStartOnly && s.board.minesPlaced) return s
+          if (request.constraintId === 'mimic' && mimicRectTooLarge(request.rect)) return s
           try {
             const contract = signContractEngine(s.board, s.contracts, request)
             // mineCount bumps once at signing so the multiplier curve, win check

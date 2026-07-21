@@ -22,6 +22,10 @@ export interface Contract {
   timingMultiplier: number
   // density-up only: forced extra mines in the zone, fixed at signing (#7).
   extraMines?: number
+  // mimic only (#8): the one lying cell and its displayed false value.
+  // Assigned lazily after mines are placed (true adjacents must exist first).
+  mimicIndex?: number
+  mimicValue?: number
   status: ContractStatus
 }
 

@@ -1,7 +1,7 @@
 'use client'
 
 import { useGameStore } from '@/store/game'
-import { activeLayersAt, type Corner } from '@/lib/engine/constraints'
+import { BLIND_FADE_MS, activeLayersAt, displayAdjacentAt, isBlindAt, type Corner } from '@/lib/engine/constraints'
 import type { Rect } from '@/lib/engine/contract'
 import type { Cell } from '@/lib/engine/types'
 
@@ -21,11 +21,12 @@ const NUMBER_COLORS = [
 // Purple zone rings: 1 layer vs 2 layers (nestingCap) must read differently.
 const ZONE_RINGS = ['', 'ring-2 ring-inset ring-purple-500', 'ring-2 ring-inset ring-purple-800 bg-purple-500/20']
 
-function cellContent(cell: Cell, lost: boolean): string {
+// `displayed` may be a mimic lie — the truth never reaches the view here.
+function cellContent(cell: Cell, lost: boolean, displayed: number): string {
   if (cell.state === 'flagged') return '🚩'
   if (cell.state === 'hidden') return ''
   if (cell.mine) return lost ? '💥' : '💣'
-  return cell.adjacent > 0 ? String(cell.adjacent) : ''
+  return displayed > 0 ? String(displayed) : ''
 }
 
 function inRect(rect: Rect | null, x: number, y: number): boolean {
@@ -61,6 +62,10 @@ export function GameBoard({ selection }: { selection?: ContractSelection }) {
         const x = i % board.width
         const y = Math.floor(i / board.width)
         const isOpen = cell.state === 'open'
+        const displayed = displayAdjacentAt(i, cell, contracts)
+        // Blind zone: opened numbers fade out after BLIND_FADE_MS (CSS-only,
+        // no per-cell timers). break/clear drops the class → truth returns.
+        const blind = isOpen && !cell.mine && displayed > 0 && isBlindAt(i, contracts, board.width)
         const layers = Math.min(activeLayersAt(i, contracts, board.width), ZONE_RINGS.length - 1)
         const previewing = contractMode && inRect(selection?.preview ?? null, x, y)
         return (
@@ -72,7 +77,7 @@ export function GameBoard({ selection }: { selection?: ContractSelection }) {
               isOpen
                 ? cell.mine
                   ? 'bg-red-300'
-                  : `bg-gray-200 dark:bg-gray-700 ${NUMBER_COLORS[cell.adjacent]}`
+                  : `bg-gray-200 dark:bg-gray-700 ${NUMBER_COLORS[displayed] ?? ''}`
                 : 'bg-gray-300 hover:bg-gray-200 active:bg-gray-100 dark:bg-gray-500 dark:hover:bg-gray-400'
             } ${previewing ? 'bg-purple-400/60 dark:bg-purple-400/60' : ZONE_RINGS[layers]} ${
               flagBlockedAt === i ? 'animate-pulse ring-2 ring-inset ring-red-500' : ''
@@ -96,7 +101,13 @@ export function GameBoard({ selection }: { selection?: ContractSelection }) {
             onPointerEnter={() => contractMode && selection?.onCellPointerEnter({ x, y })}
             onPointerUp={() => contractMode && selection?.onCellPointerUp({ x, y })}
           >
-            {cellContent(cell, lost)}
+            {blind ? (
+              <span className="blind-fade" style={{ animationDelay: `${BLIND_FADE_MS}ms` }}>
+                {cellContent(cell, lost, displayed)}
+              </span>
+            ) : (
+              cellContent(cell, lost, displayed)
+            )}
           </button>
         )
       })}

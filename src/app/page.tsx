@@ -7,7 +7,14 @@ import { Hud } from '@/components/game/hud'
 import { Button } from '@/components/ui/button'
 import { BEGINNER, EXPERT, INTERMEDIATE, custom, type BoardParams } from '@/lib/engine/presets'
 import { openedSafeCount } from '@/lib/engine/multiplier'
-import { activeLayersAt, rectFromCorners, CONSTRAINTS, type Corner } from '@/lib/engine/constraints'
+import {
+  activeLayersAt,
+  mimicRectTooLarge,
+  rectFromCorners,
+  CONSTRAINTS,
+  MIMIC_MAX_RECT,
+  type Corner,
+} from '@/lib/engine/constraints'
 import { DEFAULT_CONTRACT_PARAMS, rectCells, rectInBounds, type Rect } from '@/lib/engine/contract'
 import { useGameStore } from '@/store/game'
 
@@ -165,7 +172,11 @@ export default function Home() {
     if (!pendingRect) return
     const def = CONSTRAINTS.find((c) => c.id === constraintId)
     const error =
-      def?.preStartOnly && board.minesPlaced ? '판 시작 전에만 체결 가능합니다' : validateRect(pendingRect)
+      def?.preStartOnly && board.minesPlaced
+        ? '판 시작 전에만 체결 가능합니다'
+        : constraintId === 'mimic' && mimicRectTooLarge(pendingRect)
+          ? `미믹 구역은 최대 ${MIMIC_MAX_RECT}×${MIMIC_MAX_RECT}까지 가능합니다`
+          : validateRect(pendingRect)
     if (error) {
       setContractError(error)
       setPendingRect(null)
