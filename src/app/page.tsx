@@ -163,7 +163,7 @@ export default function Home() {
   useEffect(() => {
     if (!finished) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Enter') startGame(params)
+      if (e.key === 'Enter' && !e.repeat) startGame(params)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

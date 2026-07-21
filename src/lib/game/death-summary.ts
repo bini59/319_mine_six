@@ -19,7 +19,7 @@ export interface DeathSummary {
   totalOpens: number
   peakMultiplier: number
   recentChoices: RoundEvent[]
-  signedContracts: { label: string; rect: Rect }[]
+  signedContracts: { label: string }[]
   killedInContractZone: { label: string } | null
 }
 
@@ -63,8 +63,8 @@ export function summarizeDeath(
   const peakMultiplier = multipliers.length > 0 ? Math.max(...multipliers) : 1
 
   const signedContracts = history
-    .filter((e) => e.type === 'sign' && e.rect)
-    .map((e) => ({ label: constraintLabel(e.constraintId), rect: e.rect as Rect }))
+    .filter((e) => e.type === 'sign')
+    .map((e) => ({ label: constraintLabel(e.constraintId) }))
 
   let killedInContractZone: { label: string } | null = null
   if (killedAt) {

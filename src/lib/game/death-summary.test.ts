@@ -43,7 +43,7 @@ describe('summarizeDeath', () => {
     const s = summarizeDeath(board, history, contracts)
     expect(s.killedAt).toEqual({ x: 1, y: 1 })
     expect(s.killedInContractZone).toEqual({ label: '지뢰 밀도 업' })
-    expect(s.signedContracts).toEqual([{ label: '지뢰 밀도 업', rect: { x: 0, y: 0, w: 2, h: 2 } }])
+    expect(s.signedContracts).toEqual([{ label: '지뢰 밀도 업' }])
   })
 
   it('computes peak multiplier from open/chord events only', () => {
