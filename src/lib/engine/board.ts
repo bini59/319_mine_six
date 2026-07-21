@@ -18,7 +18,14 @@ function neighborsOf(width: number, height: number, index: number): number[] {
   return result
 }
 
+function outOfBounds(board: Board, x: number, y: number): boolean {
+  return x < 0 || x >= board.width || y < 0 || y >= board.height
+}
+
 export function generateBoard({ width, height, mines }: BoardParams): Board {
+  if (mines < 0 || mines > width * height - 9) {
+    throw new Error(`mines must be between 0 and ${width * height - 9} (first-click exemption zone)`)
+  }
   return {
     width,
     height,
@@ -81,6 +88,7 @@ function floodOpen(board: Board, cells: Cell[], start: number): void {
 }
 
 export function openCell(board: Board, x: number, y: number, rng: () => number = Math.random): Board {
+  if (outOfBounds(board, x, y)) return board
   const index = y * board.width + x
   if (board.status !== 'playing' || board.cells[index].state !== 'hidden') return board
 
@@ -97,6 +105,7 @@ export function openCell(board: Board, x: number, y: number, rng: () => number =
 }
 
 export function toggleFlag(board: Board, x: number, y: number): Board {
+  if (outOfBounds(board, x, y)) return board
   const index = y * board.width + x
   const cell = board.cells[index]
   if (board.status !== 'playing' || cell.state === 'open') return board
@@ -109,6 +118,7 @@ export function toggleFlag(board: Board, x: number, y: number): Board {
 // Chord: on an open numbered cell whose adjacent flag count matches its number,
 // open every adjacent hidden non-flagged cell. A wrong flag means hitting a mine.
 export function chord(board: Board, x: number, y: number): Board {
+  if (outOfBounds(board, x, y)) return board
   const index = y * board.width + x
   const cell = board.cells[index]
   if (board.status !== 'playing' || cell.state !== 'open' || cell.adjacent === 0) return board

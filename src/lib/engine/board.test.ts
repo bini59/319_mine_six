@@ -168,3 +168,19 @@ describe('performance', () => {
     expect(board.status === 'playing' || board.status === 'won').toBe(true)
   })
 })
+
+describe('input guards', () => {
+  it('generateBoard rejects impossible mine counts', () => {
+    expect(() => generateBoard({ width: 3, height: 3, mines: 1 })).toThrow()
+    expect(() => generateBoard({ width: 9, height: 9, mines: -1 })).toThrow()
+  })
+
+  it('out-of-range coordinates are no-ops for all entry points', () => {
+    const board = makeBoard(3, 3, [0])
+    for (const [x, y] of [[-1, 1], [3, 0], [0, -1], [0, 3]] as const) {
+      expect(openCell(board, x, y)).toBe(board)
+      expect(toggleFlag(board, x, y)).toBe(board)
+      expect(chord(board, x, y)).toBe(board)
+    }
+  })
+})
