@@ -99,7 +99,8 @@ describe('signContract', () => {
     const fresh = makeBoard(4, 4, [15])
     const early = signContract(fresh, [], request)
     expect(early.signedAtOpenedFraction).toBe(0)
-    expect(early.timingMultiplier).toBeCloseTo(0.4)
+    // M05: bonus scales by zone hidden-safe count ÷ bonusScaleSafeCells (4/100).
+    expect(early.timingMultiplier).toBeCloseTo(0.4 * (4 / 100))
 
     // Open a single numbered cell (adjacent to the mine, no flood) so the
     // request rect still holds hidden safe cells after information is revealed.

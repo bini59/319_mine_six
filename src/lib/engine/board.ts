@@ -1,6 +1,7 @@
 import type { Board, Cell } from './types'
 import type { BoardParams } from './presets'
 import { rectCells, type Rect } from './contract'
+import { stepMultiplier } from './multiplier'
 
 // density-up (#7): force `count` extra mines inside `rect` at placement time.
 export interface ForcedZone {
@@ -130,10 +131,24 @@ export function openCell(
     return { ...board, mineCount, minesPlaced: true, cells: revealMines(placed), status: 'lost' }
   }
 
+  // M05 balance: one multiplier step per risked CLICK, priced at the odds the
+  // player actually faced (hidden safe vs hidden mines before the click).
+  // The exempt first click pays nothing; flood reveals are free information.
+  const openedBefore = board.cells.filter((c) => c.state === 'open' && !c.mine).length
+  const totalSafe = board.width * board.height - mineCount
+  const multiplier = board.minesPlaced
+    ? (board.multiplier ?? 1) * stepMultiplier(totalSafe - openedBefore, mineCount)
+    : (board.multiplier ?? 1)
+
   const cells = [...placed]
   floodOpen(board, cells, index)
   const won = isWon({ cells, mineCount })
-  return { ...board, mineCount, minesPlaced: true, cells, status: won ? 'won' : 'playing' }
+  // First click (placement time) is exempt from mines — record its reveals so
+  // contract clears can't credit risk-free cells.
+  const freeOpened = board.minesPlaced
+    ? board.freeOpened
+    : cells.flatMap((c, i) => (c.state === 'open' ? [i] : []))
+  return { ...board, mineCount, minesPlaced: true, cells, status: won ? 'won' : 'playing', freeOpened, multiplier }
 }
 
 export function toggleFlag(board: Board, x: number, y: number): Board {
@@ -167,5 +182,14 @@ export function chord(board: Board, x: number, y: number): Board {
   const cells = [...board.cells]
   for (const t of targets) floodOpen(board, cells, t)
   const won = isWon({ cells, mineCount: board.mineCount })
-  return { ...board, cells, status: won ? 'won' : 'playing' }
+  // M05 balance: each chord target is one risked click (a wrong flag kills), so
+  // charge one step per target at sequentially-updated odds. Flood extras free.
+  const totalSafe = board.width * board.height - board.mineCount
+  let openedBefore = board.cells.filter((c) => c.state === 'open' && !c.mine).length
+  let multiplier = board.multiplier ?? 1
+  for (let t = 0; t < targets.length; t++) {
+    multiplier *= stepMultiplier(totalSafe - openedBefore, board.mineCount)
+    openedBefore += 1
+  }
+  return { ...board, cells, status: won ? 'won' : 'playing', multiplier }
 }
