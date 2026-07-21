@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { chord, generateBoard, openCell, toggleFlag } from './board'
+import { SCAN_COST_MIN, chord, generateBoard, openCell, scan, scanCost, toggleFlag } from './board'
 import { BEGINNER, EXPERT, custom } from './presets'
+import { useGameStore } from '@/store/game'
 import type { Board, Cell } from './types'
 
 // Brute-force adjacency, independent of the engine implementation.
@@ -216,5 +217,63 @@ describe('forced zones (density-up)', () => {
     const opened = openCell(bumped, 4, 4)
     expect(opened.mineCount).toBe(72)
     expect(opened.cells.filter((c) => c.mine).length).toBe(72)
+  })
+})
+
+describe('scan (engine)', () => {
+  it('records the scanned index on a new board (immutable)', () => {
+    const board = makeBoard(3, 3, [0])
+    const next = scan(board, 1, 1)
+    expect(next.scanned).toEqual([4])
+    expect(board.scanned).toBeUndefined()
+    expect(next.cells).toBe(board.cells) // truth untouched — badge reads cell.mine
+  })
+
+  it('no-ops (same reference) on every invalid target', () => {
+    const board = makeBoard(3, 3, [0])
+    const unplaced = { ...board, minesPlaced: false }
+    expect(scan(unplaced, 1, 1)).toBe(unplaced) // pre-placement
+    const lost: Board = { ...board, status: 'lost' }
+    expect(scan(lost, 1, 1)).toBe(lost) // finished
+    const opened = openCell(board, 2, 2)
+    const openIndex = opened.cells.findIndex((c) => c.state === 'open')
+    expect(scan(opened, openIndex % 3, Math.floor(openIndex / 3))).toBe(opened) // already open
+    const once = scan(board, 1, 1)
+    expect(scan(once, 1, 1)).toBe(once) // double-scan same cell
+    expect(scan(board, -1, 0)).toBe(board) // out of bounds
+  })
+
+  it('scanCost: floor of 50, scales with bet × multiplier × 15%', () => {
+    const board = makeBoard(3, 3, [0])
+    expect(scanCost(board, 0)).toBe(SCAN_COST_MIN)
+    expect(scanCost(board, 100)).toBe(SCAN_COST_MIN) // 100 × 1 × 0.15 = 15 → floor 50
+    expect(scanCost({ ...board, multiplier: 2 }, 1000)).toBe(300) // ceil(1000 × 2 × 0.15)
+  })
+})
+
+describe('scan (store)', () => {
+  it('deducts the cost once and exposes the truth of the scanned cell', () => {
+    useGameStore.getState().newGame(BEGINNER)
+    useGameStore.getState().open(4, 4)
+    const s = useGameStore.getState()
+    const hidden = s.board.cells.findIndex((c) => c.state === 'hidden')
+    const [x, y] = [hidden % s.board.width, Math.floor(hidden / s.board.width)]
+    const cost = scanCost(s.board, s.bet)
+    useGameStore.getState().scan(x, y)
+    expect(useGameStore.getState().balance).toBe(s.balance - cost)
+    expect(useGameStore.getState().board.scanned).toEqual([hidden])
+    expect(useGameStore.getState().history.at(-1)).toEqual({ type: 'scan', x, y })
+    useGameStore.getState().scan(x, y) // double-scan: engine no-op, no second charge
+    expect(useGameStore.getState().balance).toBe(s.balance - cost)
+  })
+
+  it('no-ops when the balance cannot cover the cost', () => {
+    useGameStore.getState().newGame(BEGINNER, 1000) // all-in: balance 0
+    useGameStore.getState().open(4, 4)
+    const s = useGameStore.getState()
+    const hidden = s.board.cells.findIndex((c) => c.state === 'hidden')
+    useGameStore.getState().scan(hidden % s.board.width, Math.floor(hidden / s.board.width))
+    expect(useGameStore.getState().board.scanned).toBeUndefined()
+    expect(useGameStore.getState().balance).toBe(0)
   })
 })

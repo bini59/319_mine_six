@@ -20,6 +20,10 @@ export interface Board {
   // risk, so contract clears must not credit them.
   // Absent/empty on hand-crafted boards — everything is then priced as risky.
   freeOpened?: readonly number[]
+  // Cell indices whose mine truth the player bought with a scan (#12).
+  // The badge reads cell.mine directly — honest 0%/100%, no estimates.
+  // Round-scoped like the board itself (not persisted).
+  scanned?: readonly number[]
   // Cumulative payout multiplier, accumulated per risked CLICK at click time
   // (M05 balance): flood reveals are free information — charging a step per
   // revealed cell paid 1.15^flood for one cell of risk (measured EV ≈ 2×10⁹

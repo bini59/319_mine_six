@@ -1,6 +1,14 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { chord, generateBoard, openCell, toggleFlag, type ForcedZone } from '@/lib/engine/board'
+import {
+  chord,
+  generateBoard,
+  openCell,
+  scan as scanEngine,
+  scanCost,
+  toggleFlag,
+  type ForcedZone,
+} from '@/lib/engine/board'
 import { CONSTRAINTS, isFlagBlockedAt, mimicRectTooLarge, resolveMimics } from '@/lib/engine/constraints'
 import {
   breakContract as breakContractEngine,
@@ -43,6 +51,7 @@ interface GameState {
   chord: (x: number, y: number) => void
   cashout: () => void
   refill: () => void
+  scan: (x: number, y: number) => void
   signContract: (request: SignRequest) => void
   breakContract: (id: number) => void
 }
@@ -261,6 +270,23 @@ export const useGameStore = create<GameState>()(
         }),
       // ponytail: free refill, no cooldown — virtual points only (PRD 2.2)
       refill: () => set((s) => (s.balance <= 0 && s.bet === 0 ? { balance: START_BALANCE } : s)),
+      // Scan (#12): buy-and-use, no inventory. Engine no-op (pre-placement /
+      // not hidden / already scanned / finished) must not charge.
+      scan: (x, y) =>
+        set((s) => {
+          if (s.cashedOut) return s
+          const board = scanEngine(s.board, x, y)
+          if (board === s.board) return s
+          const cost = scanCost(s.board, s.bet)
+          if (s.balance < cost) return s
+          return {
+            board,
+            balance: s.balance - cost,
+            flagBlockedAt: null,
+            lastClear: null,
+            history: [...s.history, { type: 'scan' as const, x, y }],
+          }
+        }),
     }),
     {
       name: 'mine-six-points',
