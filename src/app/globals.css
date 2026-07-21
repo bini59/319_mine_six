@@ -128,3 +128,13 @@
     @apply font-sans;
 	}
 }
+/* 블라인드 숫자 (#8): opened numbers in a blind zone fade out after the
+   inline animation-delay (BLIND_FADE_MS). CSS-only — no per-cell JS timers. */
+@keyframes blind-fadeout {
+  to {
+    opacity: 0;
+  }
+}
+.blind-fade {
+  animation: blind-fadeout 0.6s ease forwards;
+}
