@@ -77,8 +77,9 @@ function withClearFx(prev: readonly Contract[], partial: Partial<GameState>): Pa
     lastClear: {
       rects: cleared.map((c) => c.rect),
       combo: cleared.length,
-      // Same display convention as contract-hud: each cleared zone shows ×(1 + timing).
-      multiplier: cleared.reduce((m, c) => m * (1 + c.timingMultiplier), 1),
+      // The real payout factor this clear added: contracts multiplier after ÷ before.
+      // Matches actual settlement math (incl. nesting decay), unlike a naive product.
+      multiplier: contractsMultiplier(partial.contracts!) / contractsMultiplier(prev),
       at: Date.now(),
     },
   }

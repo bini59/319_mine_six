@@ -62,6 +62,8 @@ export function GameBoard({ selection }: { selection?: ContractSelection }) {
         {flagBlockedAt !== null ? '이 구역은 깃발을 꽂을 수 없습니다' : ''}
       </p>
       <div
+      // ponytail: back-to-back clears don't restart this pulse (no key remount —
+      // rekeying would drop 480 buttons and focus). Pop/wave still restart via `at`.
       className={`grid w-fit max-w-full select-none gap-px overflow-auto bg-gray-400 p-px dark:bg-gray-600 ${
         lastClear ? 'board-slowmo' : ''
       }`}
