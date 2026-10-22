@@ -11,7 +11,7 @@ Read the documentation at https://opennext.js.org/cloudflare.
 Run the Next.js development server:
 
 ```bash
-npm run dev
+pnpm dev
 # or similar package manager command
 ```
 
@@ -24,7 +24,7 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 Preview the application locally on the Cloudflare runtime:
 
 ```bash
-npm run preview
+pnpm preview
 # or similar package manager command
 ```
 
@@ -33,7 +33,7 @@ npm run preview
 Deploy the application to Cloudflare:
 
 ```bash
-npm run deploy
+pnpm run deploy
 # or similar package manager command
 ```
 
